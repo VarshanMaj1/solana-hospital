@@ -1,0 +1,62 @@
+{
+  "address": "6FyZincSKRMEJkiFxB3bHkP1rJJnEMoGf3FUCqs8tKgK",
+  "metadata": {
+    "name": "healthcare",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "register_patient",
+      "discriminator": [28, 119, 184, 101, 140, 117, 47, 183],
+      "accounts": [
+        { "name": "hospital", "writable": false, "signer": false },
+        { "name": "admin", "writable": true, "signer": true },
+        { "name": "manager", "writable": false, "signer": false, "optional": true },
+        { "name": "patient_wallet", "writable": false, "signer": false },
+        { "name": "patient", "writable": true, "signer": false },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "full_name", "type": "string" },
+        { "name": "date_of_birth", "type": "string" },
+        { "name": "blood_type", "type": "string" },
+        { "name": "phone", "type": "string" },
+        { "name": "emergency_contact", "type": "string" }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Patient",
+      "discriminator": [118, 127, 39, 235, 201, 189, 0, 109]
+    }
+  ],
+  "types": [
+    {
+      "name": "Patient",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "wallet", "type": "pubkey" },
+          { "name": "full_name", "type": "string" },
+          { "name": "date_of_birth", "type": "string" },
+          { "name": "blood_type", "type": "string" },
+          { "name": "phone", "type": "string" },
+          { "name": "emergency_contact", "type": "string" },
+          { "name": "registered_at", "type": "i64" },
+          { "name": "next_record_id", "type": "u64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    }
+  ],
+  "events": [],
+  "errors": []
+}

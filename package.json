@@ -1,0 +1,10 @@
+{
+  "name": "healthcare-solana",
+  "private": true,
+  "scripts": {
+    "build:program": "cd program && anchor build",
+    "test:program": "cd program && anchor test",
+    "dev:frontend": "cd frontend && npm run dev",
+    "anchor": "cd program && anchor"
+  }
+}
