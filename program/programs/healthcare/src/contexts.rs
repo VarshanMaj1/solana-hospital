@@ -305,6 +305,8 @@ pub struct CreatePayment<'info> {
     )]
     pub patient: Account<'info, Patient>,
     #[account(optional)]
+    pub medical_record: Option<Account<'info, MedicalRecord>>,
+    #[account(optional)]
     pub medicine: Option<Account<'info, Medicine>>,
     #[account(
         init,

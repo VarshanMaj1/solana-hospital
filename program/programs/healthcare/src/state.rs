@@ -155,6 +155,7 @@ pub enum PaymentStatus {
 pub struct Payment {
     pub hospital: Pubkey,
     pub patient: Pubkey,
+    pub medical_record: Option<Pubkey>,
     pub medicine: Option<Pubkey>,
     pub payment_id: u64,
     pub amount_lamports: u64,

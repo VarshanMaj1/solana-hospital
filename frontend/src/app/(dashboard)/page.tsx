@@ -1,38 +1,53 @@
 import {
   Activity,
+  DollarSign,
   FileText,
-  Pill,
   TrendingUp,
+  UserSquare2,
   Users,
-  Wallet,
 } from "lucide-react";
 
-const statCards = [
+/** Placeholder metrics — replace with on-chain / API counts when wired up. */
+const DASHBOARD_PLACEHOLDER = {
+  totalPatients: 1842,
+  totalStaff: 96,
+  totalRecords: 6210,
+  totalRevenueUsd: 128_450,
+} as const;
+
+const countFormatter = new Intl.NumberFormat("en-US");
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
+const overviewCards = [
   {
-    label: "Active patients",
-    value: "—",
-    hint: "On-chain count after sync",
+    label: "Total patients",
+    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalPatients),
+    hint: "Demo data — connect program later",
     icon: Users,
   },
   {
-    label: "Open records",
-    value: "—",
-    hint: "Medical records this month",
+    label: "Total staff",
+    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalStaff),
+    hint: "Demo data — connect program later",
+    icon: UserSquare2,
+  },
+  {
+    label: "Total records",
+    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalRecords),
+    hint: "Demo data — connect program later",
     icon: FileText,
   },
   {
-    label: "Medicine SKUs",
-    value: "—",
-    hint: "Catalog entries",
-    icon: Pill,
+    label: "Total revenue",
+    value: currencyFormatter.format(DASHBOARD_PLACEHOLDER.totalRevenueUsd),
+    hint: "Demo data — connect program later",
+    icon: DollarSign,
   },
-  {
-    label: "Pending payments",
-    value: "—",
-    hint: "Awaiting patient settlement",
-    icon: Wallet,
-  },
-];
+] as const;
 
 export default function DashboardPage() {
   return (
@@ -58,15 +73,15 @@ export default function DashboardPage() {
       <section>
         <div className="mb-4 flex items-center justify-between gap-2">
           <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Snapshot
+            Overview
           </h2>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <TrendingUp className="size-3.5" aria-hidden />
-            Live data after program integration
+            Placeholder metrics
           </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {statCards.map(({ label, value, hint, icon: Icon }) => (
+          {overviewCards.map(({ label, value, hint, icon: Icon }) => (
             <div
               key={label}
               className="rounded-xl border border-border bg-card p-5 shadow-sm transition-shadow hover:shadow-md"

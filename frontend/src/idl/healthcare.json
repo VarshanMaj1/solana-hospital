@@ -29,15 +29,190 @@
         { "name": "phone", "type": "string" },
         { "name": "emergency_contact", "type": "string" }
       ]
+    },
+    {
+      "name": "add_staff",
+      "discriminator": [193, 22, 157, 102, 182, 180, 167, 123],
+      "accounts": [
+        { "name": "hospital", "writable": true, "signer": false },
+        { "name": "admin", "writable": true, "signer": true },
+        { "name": "manager", "writable": false, "signer": false, "optional": true },
+        { "name": "staff_wallet", "writable": false, "signer": false },
+        { "name": "staff", "writable": true, "signer": false },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "role", "type": { "defined": { "name": "StaffRole" } } },
+        { "name": "department", "type": "string" },
+        { "name": "license_number", "type": "string" }
+      ]
+    },
+    {
+      "name": "add_medicine",
+      "discriminator": [255, 24, 251, 177, 235, 48, 170, 85],
+      "accounts": [
+        { "name": "hospital", "writable": true, "signer": false },
+        { "name": "admin", "writable": true, "signer": true },
+        { "name": "manager", "writable": false, "signer": false, "optional": true },
+        { "name": "medicine", "writable": true, "signer": false },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "name", "type": "string" },
+        { "name": "sku", "type": "string" },
+        { "name": "initial_stock", "type": "u32" },
+        { "name": "unit_price_lamports", "type": "u64" },
+        { "name": "requires_prescription", "type": "bool" }
+      ]
+    },
+    {
+      "name": "create_payment",
+      "discriminator": [28, 81, 85, 253, 7, 223, 154, 42],
+      "accounts": [
+        { "name": "hospital", "writable": true, "signer": false },
+        { "name": "signer", "writable": true, "signer": true },
+        { "name": "manager", "writable": false, "signer": false, "optional": true },
+        { "name": "staff", "writable": false, "signer": false, "optional": true },
+        { "name": "patient", "writable": false, "signer": false },
+        { "name": "medical_record", "writable": false, "signer": false, "optional": true },
+        { "name": "medicine", "writable": false, "signer": false, "optional": true },
+        { "name": "payment", "writable": true, "signer": false },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "amount_lamports", "type": "u64" },
+        { "name": "description", "type": "string" }
+      ]
+    },
+    {
+      "name": "create_medical_record",
+      "discriminator": [245, 103, 30, 56, 92, 242, 63, 69],
+      "accounts": [
+        { "name": "hospital", "writable": false, "signer": false },
+        { "name": "signer", "writable": true, "signer": true },
+        { "name": "staff", "writable": false, "signer": false },
+        { "name": "patient", "writable": true, "signer": false },
+        { "name": "medical_record", "writable": true, "signer": false },
+        {
+          "name": "system_program",
+          "writable": false,
+          "signer": false,
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        { "name": "diagnosis", "type": "string" },
+        { "name": "treatment", "type": "string" },
+        { "name": "notes", "type": "string" },
+        { "name": "visit_date", "type": "i64" }
+      ]
+    },
+    {
+      "name": "update_medical_record",
+      "discriminator": [165, 109, 26, 98, 65, 26, 143, 18],
+      "accounts": [
+        { "name": "hospital", "writable": false, "signer": false },
+        { "name": "signer", "writable": false, "signer": true },
+        { "name": "manager", "writable": false, "signer": false, "optional": true },
+        { "name": "staff_author", "writable": false, "signer": false, "optional": true },
+        { "name": "patient", "writable": false, "signer": false },
+        { "name": "medical_record", "writable": true, "signer": false }
+      ],
+      "args": [
+        { "name": "diagnosis", "type": "string" },
+        { "name": "treatment", "type": "string" },
+        { "name": "notes", "type": "string" },
+        { "name": "visit_date", "type": "i64" }
+      ]
     }
   ],
   "accounts": [
     {
+      "name": "Hospital",
+      "discriminator": [150, 59, 177, 217, 93, 234, 181, 75]
+    },
+    {
       "name": "Patient",
       "discriminator": [118, 127, 39, 235, 201, 189, 0, 109]
+    },
+    {
+      "name": "Staff",
+      "discriminator": [116, 23, 32, 52, 10, 46, 140, 21]
+    },
+    {
+      "name": "Manager",
+      "discriminator": [221, 78, 171, 233, 213, 142, 113, 56]
+    },
+    {
+      "name": "Medicine",
+      "discriminator": [181, 38, 15, 232, 55, 211, 105, 213]
+    },
+    {
+      "name": "MedicalRecord",
+      "discriminator": [30, 152, 224, 245, 112, 161, 115, 55]
+    },
+    {
+      "name": "Payment",
+      "discriminator": [227, 231, 51, 26, 244, 88, 4, 148]
     }
   ],
   "types": [
+    {
+      "name": "StaffRole",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Doctor" },
+          { "name": "Nurse" },
+          { "name": "Other" }
+        ]
+      }
+    },
+    {
+      "name": "PaymentStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Pending" },
+          { "name": "Completed" },
+          { "name": "Refunded" },
+          { "name": "Cancelled" }
+        ]
+      }
+    },
+    {
+      "name": "Hospital",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "authority", "type": "pubkey" },
+          { "name": "name", "type": "string" },
+          { "name": "location", "type": "string" },
+          { "name": "registration_number", "type": "string" },
+          { "name": "phone", "type": "string" },
+          { "name": "is_active", "type": "bool" },
+          { "name": "created_at", "type": "i64" },
+          { "name": "bump", "type": "u8" },
+          { "name": "next_medicine_id", "type": "u64" },
+          { "name": "next_payment_id", "type": "u64" }
+        ]
+      }
+    },
     {
       "name": "Patient",
       "type": {
@@ -52,6 +227,88 @@
           { "name": "emergency_contact", "type": "string" },
           { "name": "registered_at", "type": "i64" },
           { "name": "next_record_id", "type": "u64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Staff",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "wallet", "type": "pubkey" },
+          { "name": "role", "type": { "defined": { "name": "StaffRole" } } },
+          { "name": "department", "type": "string" },
+          { "name": "license_number", "type": "string" },
+          { "name": "is_active", "type": "bool" },
+          { "name": "registered_at", "type": "i64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Manager",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "wallet", "type": "pubkey" },
+          { "name": "is_active", "type": "bool" },
+          { "name": "appointed_at", "type": "i64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Medicine",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "medicine_id", "type": "u64" },
+          { "name": "name", "type": "string" },
+          { "name": "sku", "type": "string" },
+          { "name": "stock_quantity", "type": "u32" },
+          { "name": "unit_price_lamports", "type": "u64" },
+          { "name": "requires_prescription", "type": "bool" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "MedicalRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "patient", "type": "pubkey" },
+          { "name": "author_staff", "type": "pubkey" },
+          { "name": "record_id", "type": "u64" },
+          { "name": "diagnosis", "type": "string" },
+          { "name": "treatment", "type": "string" },
+          { "name": "notes", "type": "string" },
+          { "name": "visit_date", "type": "i64" },
+          { "name": "created_at", "type": "i64" },
+          { "name": "updated_at", "type": "i64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "Payment",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "hospital", "type": "pubkey" },
+          { "name": "patient", "type": "pubkey" },
+          { "name": "medical_record", "type": { "option": "pubkey" } },
+          { "name": "medicine", "type": { "option": "pubkey" } },
+          { "name": "payment_id", "type": "u64" },
+          { "name": "amount_lamports", "type": "u64" },
+          { "name": "status", "type": { "defined": { "name": "PaymentStatus" } } },
+          { "name": "description", "type": "string" },
+          { "name": "created_at", "type": "i64" },
           { "name": "bump", "type": "u8" }
         ]
       }

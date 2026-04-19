@@ -246,6 +246,22 @@ pub fn create_payment(
         ctx.accounts.staff.as_ref(),
     )?;
 
+    let medical_record_pubkey = if let Some(mr) = ctx.accounts.medical_record.as_ref() {
+        require_keys_eq!(
+            mr.patient,
+            ctx.accounts.patient.key(),
+            ErrorCode::InvalidPatientRecord
+        );
+        require_keys_eq!(
+            mr.hospital,
+            ctx.accounts.hospital.key(),
+            ErrorCode::InvalidHospital
+        );
+        Some(mr.key())
+    } else {
+        None
+    };
+
     let medicine_pubkey = if let Some(m) = ctx.accounts.medicine.as_ref() {
         require_keys_eq!(
             m.hospital,
@@ -261,6 +277,7 @@ pub fn create_payment(
     let pay = &mut ctx.accounts.payment;
     pay.hospital = ctx.accounts.hospital.key();
     pay.patient = ctx.accounts.patient.key();
+    pay.medical_record = medical_record_pubkey;
     pay.medicine = medicine_pubkey;
     pay.payment_id = id;
     pay.amount_lamports = amount_lamports;

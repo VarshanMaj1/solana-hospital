@@ -3,14 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { dashboardNav } from "@/config/nav";
+import {
+  isNavHrefAllowed,
+  useWalletHospitalRole,
+} from "@/hooks/use-wallet-hospital-role";
 import { cn } from "@/lib/utils";
 
 export function DashboardNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { role } = useWalletHospitalRole();
+
+  const items = dashboardNav.filter((item) => isNavHrefAllowed(role, item.href));
 
   return (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Main navigation">
-      {dashboardNav.map(({ href, label, icon: Icon }) => {
+      {items.map(({ href, label, icon: Icon }) => {
         const active =
           href === "/"
             ? pathname === "/"

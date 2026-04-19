@@ -1,9 +1,11 @@
 "use client";
 
+import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { usePathname } from "next/navigation";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { ThemeToggle } from "@/components/dashboard/theme-toggle";
+import { useWalletHospitalRole } from "@/hooks/use-wallet-hospital-role";
 import { Separator } from "@/components/ui/separator";
 
 const pageMeta: Record<
@@ -19,20 +21,20 @@ const pageMeta: Record<
     description: "Manage patient registrations and profiles.",
   },
   "/staff": {
-    title: "Staff",
-    description: "Doctors, nurses, and hospital staff.",
+    title: "Staff management",
+    description: "Add and view doctors, nurses, and other staff.",
   },
   "/records": {
     title: "Medical records",
     description: "Clinical visits, diagnoses, and notes.",
   },
   "/medicines": {
-    title: "Medicines",
-    description: "Inventory, SKUs, and stock levels.",
+    title: "Medicine inventory",
+    description: "Add and view medicines, stock, and pricing.",
   },
   "/payments": {
     title: "Payments",
-    description: "Billing, settlements, and treasury.",
+    description: "Charges linked to visits and recent on-chain program activity.",
   },
 };
 
@@ -53,6 +55,8 @@ function resolveHeader(pathname: string) {
 export function DashboardHeader() {
   const pathname = usePathname();
   const { title, description } = resolveHeader(pathname);
+  const { publicKey } = useWallet();
+  const { label: roleLabel, isResolving } = useWalletHospitalRole();
 
   return (
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-md md:px-6">
@@ -65,6 +69,14 @@ export function DashboardHeader() {
       </div>
       <Separator orientation="vertical" className="hidden h-6 sm:block" />
       <div className="flex items-center gap-2">
+        {publicKey ? (
+          <span
+            className="max-w-[6.5rem] truncate rounded-md border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground sm:max-w-[8.5rem]"
+            title="Derived from your wallet vs on-chain hospital PDAs"
+          >
+            {isResolving ? "Role…" : roleLabel}
+          </span>
+        ) : null}
         <ThemeToggle />
         <WalletMultiButton className="!h-9 !rounded-md !bg-primary !font-medium !text-primary-foreground hover:!bg-primary/90" />
       </div>

@@ -16,58 +16,70 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useHealthcareProgram, useHospitalAuthorityPubkey } from "@/hooks/use-healthcare-program";
-import { hospitalAuthorityPda, managerWalletPda, patientPda } from "@/lib/pda";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
+import { hospitalAuthorityPda, managerWalletPda, staffPda } from "@/lib/pda";
 import {
   asHealthcareProgram,
-  type PatientAccountData,
+  staffRoleLabel,
+  type StaffAccountData,
+  type StaffRoleArg,
 } from "@/types/healthcare-program";
 
-const BLOOD_FILTERS = [
-  "All",
-  "A+",
-  "A-",
-  "B+",
-  "B-",
-  "AB+",
-  "AB-",
-  "O+",
-  "O-",
-  "Other",
+const ROLE_OPTIONS = [
+  { value: "doctor", label: "Doctor", arg: { doctor: {} } as StaffRoleArg },
+  { value: "nurse", label: "Nurse", arg: { nurse: {} } as StaffRoleArg },
+  { value: "other", label: "Other", arg: { other: {} } as StaffRoleArg },
 ] as const;
 
-type PatientRow = PatientAccountData & { pubkey: PublicKey };
+type StaffRow = StaffAccountData & { pubkey: PublicKey };
 
 function shortenPk(pk: PublicKey, chars = 4) {
   const s = pk.toBase58();
   return `${s.slice(0, chars)}…${s.slice(-chars)}`;
 }
 
-export function PatientsClient() {
-  const { program, wallet, hospitalAuthority, canTransact } = useHealthcareProgram();
+function normalizeStaffAccount(
+  publicKey: PublicKey,
+  raw: StaffAccountData & {
+    license_number?: string;
+    is_active?: boolean;
+    registered_at?: { toNumber(): number };
+  }
+): StaffRow {
+  return {
+    pubkey: publicKey,
+    hospital: raw.hospital,
+    wallet: raw.wallet,
+    role: raw.role,
+    department: raw.department,
+    licenseNumber: raw.licenseNumber ?? raw.license_number ?? "",
+    isActive: raw.isActive ?? raw.is_active ?? true,
+    registeredAt: raw.registeredAt ?? raw.registered_at ?? { toNumber: () => 0 },
+    bump: raw.bump,
+  };
+}
+
+export function StaffClient() {
+  const { program, hospitalAuthority, canTransact } = useHealthcareProgram();
   const hospitalAuthorityFromEnv = useHospitalAuthorityPubkey();
   const { connection } = useConnection();
   const { publicKey } = useWallet();
 
-  const [rows, setRows] = React.useState<PatientRow[]>([]);
+  const [rows, setRows] = React.useState<StaffRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
-  const [bloodFilter, setBloodFilter] =
-    React.useState<(typeof BLOOD_FILTERS)[number]>("All");
 
   const [modalOpen, setModalOpen] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [formError, setFormError] = React.useState<string | null>(null);
 
-  const [patientWalletStr, setPatientWalletStr] = React.useState("");
-  const [fullName, setFullName] = React.useState("");
-  const [dateOfBirth, setDateOfBirth] = React.useState("");
-  const [bloodType, setBloodType] = React.useState("O+");
-  const [phone, setPhone] = React.useState("");
-  const [emergencyContact, setEmergencyContact] = React.useState("");
+  const [staffWalletStr, setStaffWalletStr] = React.useState("");
+  const [roleKey, setRoleKey] = React.useState<(typeof ROLE_OPTIONS)[number]["value"]>("doctor");
+  const [department, setDepartment] = React.useState("");
+  const [licenseNumber, setLicenseNumber] = React.useState("");
 
-  const loadPatients = React.useCallback(async () => {
+  const loadStaff = React.useCallback(async () => {
     const hp = asHealthcareProgram(program);
     if (!hp || !hospitalAuthority) {
       setRows([]);
@@ -78,7 +90,7 @@ export function PatientsClient() {
     setError(null);
     try {
       const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
-      const fetched = await hp.account.patient.all([
+      const fetched = await hp.account.staff.all([
         {
           memcmp: {
             offset: 8,
@@ -87,38 +99,14 @@ export function PatientsClient() {
         },
       ]);
 
-      const mapped: PatientRow[] = fetched.map(({ publicKey, account }) => {
-        const a = account as PatientAccountData & {
-          full_name?: string;
-          date_of_birth?: string;
-          blood_type?: string;
-          emergency_contact?: string;
-          registered_at?: { toNumber(): number };
-          next_record_id?: { toNumber(): number };
-        };
-        return {
-          pubkey: publicKey,
-          hospital: a.hospital,
-          wallet: a.wallet,
-          fullName: a.fullName ?? a.full_name ?? "",
-          dateOfBirth: a.dateOfBirth ?? a.date_of_birth ?? "",
-          bloodType: a.bloodType ?? a.blood_type ?? "",
-          phone: a.phone,
-          emergencyContact: a.emergencyContact ?? a.emergency_contact ?? "",
-          registeredAt:
-            a.registeredAt ??
-            a.registered_at ?? { toNumber: () => 0 },
-          nextRecordId:
-            a.nextRecordId ??
-            a.next_record_id ?? { toNumber: () => 0 },
-          bump: a.bump,
-        };
-      });
+      const mapped: StaffRow[] = fetched.map(({ publicKey, account }) =>
+        normalizeStaffAccount(publicKey, account as StaffAccountData)
+      );
       mapped.sort((x, y) => y.registeredAt.toNumber() - x.registeredAt.toNumber());
       setRows(mapped);
     } catch (e) {
       console.error(e);
-      setError(e instanceof Error ? e.message : "Failed to load patients");
+      setError(e instanceof Error ? e.message : "Failed to load staff");
       setRows([]);
     } finally {
       setLoading(false);
@@ -126,34 +114,30 @@ export function PatientsClient() {
   }, [program, hospitalAuthority]);
 
   React.useEffect(() => {
-    void loadPatients();
-  }, [loadPatients]);
+    void loadStaff();
+  }, [loadStaff]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (bloodFilter !== "All" && r.bloodType !== bloodFilter) {
-        return false;
-      }
       if (!q) {
         return true;
       }
+      const role = staffRoleLabel(r.role).toLowerCase();
       return (
-        r.fullName.toLowerCase().includes(q) ||
-        r.phone.toLowerCase().includes(q) ||
+        r.department.toLowerCase().includes(q) ||
+        r.licenseNumber.toLowerCase().includes(q) ||
         r.wallet.toBase58().toLowerCase().includes(q) ||
-        r.emergencyContact.toLowerCase().includes(q)
+        role.includes(q)
       );
     });
-  }, [rows, search, bloodFilter]);
+  }, [rows, search]);
 
   const resetForm = () => {
-    setPatientWalletStr("");
-    setFullName("");
-    setDateOfBirth("");
-    setBloodType("O+");
-    setPhone("");
-    setEmergencyContact("");
+    setStaffWalletStr("");
+    setRoleKey("doctor");
+    setDepartment("");
+    setLicenseNumber("");
     setFormError(null);
   };
 
@@ -165,30 +149,24 @@ export function PatientsClient() {
       return;
     }
 
-    let patientWalletPk: PublicKey;
+    let staffWalletPk: PublicKey;
     try {
-      patientWalletPk = new PublicKey(patientWalletStr.trim());
+      staffWalletPk = new PublicKey(staffWalletStr.trim());
     } catch {
-      setFormError("Invalid patient wallet address.");
+      setFormError("Invalid staff wallet address.");
       return;
     }
 
-    if (
-      !fullName.trim() ||
-      !dateOfBirth.trim() ||
-      !bloodType.trim() ||
-      !phone.trim() ||
-      !emergencyContact.trim()
-    ) {
-      setFormError("All fields are required.");
+    if (!department.trim() || !licenseNumber.trim()) {
+      setFormError("Department and license number are required.");
       return;
     }
 
     const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
-    const [patientAccount] = patientPda(hospitalPda, patientWalletPk);
-    const existing = await connection.getAccountInfo(patientAccount);
+    const [staffAccount] = staffPda(hospitalPda, staffWalletPk);
+    const existing = await connection.getAccountInfo(staffAccount);
     if (existing) {
-      setFormError("A patient is already registered for this wallet.");
+      setFormError("Staff is already registered for this wallet.");
       return;
     }
 
@@ -213,35 +191,27 @@ export function PatientsClient() {
       return;
     }
 
+    const roleArg = ROLE_OPTIONS.find((o) => o.value === roleKey)?.arg ?? {
+      doctor: {},
+    };
+
     setSubmitting(true);
     try {
       const base = {
         hospital: hospitalPda,
         admin: publicKey,
-        patientWallet: patientWalletPk,
-        patient: patientAccount,
+        staffWallet: staffWalletPk,
+        staff: staffAccount,
         systemProgram: SystemProgram.programId,
       };
 
       const tx = isAuthority
         ? await hp.methods
-            .registerPatient(
-              fullName.trim(),
-              dateOfBirth.trim(),
-              bloodType.trim(),
-              phone.trim(),
-              emergencyContact.trim()
-            )
+            .addStaff(roleArg, department.trim(), licenseNumber.trim())
             .accounts(base)
             .rpc()
         : await hp.methods
-            .registerPatient(
-              fullName.trim(),
-              dateOfBirth.trim(),
-              bloodType.trim(),
-              phone.trim(),
-              emergencyContact.trim()
-            )
+            .addStaff(roleArg, department.trim(), licenseNumber.trim())
             .accounts({
               ...base,
               manager: managerAccount,
@@ -249,13 +219,13 @@ export function PatientsClient() {
             .rpc();
 
       await connection.confirmTransaction(tx, "confirmed");
-      toastSolanaSuccess("Patient registered", tx);
+      toastSolanaSuccess("Staff member added", tx);
       setModalOpen(false);
       resetForm();
-      await loadPatients();
+      await loadStaff();
     } catch (err) {
       console.error(err);
-      toastSolanaError("Could not register patient", err);
+      toastSolanaError("Could not add staff", err);
       setFormError(
         err instanceof Error ? err.message : "Transaction failed. Check console."
       );
@@ -279,45 +249,20 @@ export function PatientsClient() {
           <code className="rounded bg-background/50 px-1 py-0.5 text-xs">
             .env.local
           </code>{" "}
-          to the public key that created the hospital (same as{" "}
-          <code className="rounded bg-background/50 px-1 py-0.5 text-xs">
-            register_hospital
-          </code>{" "}
-          signer). Then restart the dev server.
+          to the hospital authority public key, then restart the dev server.
         </div>
       ) : null}
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search name, phone, wallet…"
-              className="pl-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search patients"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="blood-filter" className="sr-only">
-              Blood type
-            </Label>
-            <select
-              id="blood-filter"
-              value={bloodFilter}
-              onChange={(e) =>
-                setBloodFilter(e.target.value as (typeof BLOOD_FILTERS)[number])
-              }
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {BLOOD_FILTERS.map((b) => (
-                <option key={b} value={b}>
-                  Blood: {b}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search department, license, wallet, role…"
+            className="pl-9"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search staff"
+          />
         </div>
         <Button
           onClick={() => {
@@ -328,7 +273,7 @@ export function PatientsClient() {
           className="shrink-0 gap-2"
         >
           <Plus className="size-4" />
-          Add patient
+          Add staff
         </Button>
       </div>
 
@@ -344,22 +289,19 @@ export function PatientsClient() {
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="px-4 py-3 font-medium text-muted-foreground">
-                  Name
+                  Role
                 </th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">
-                  Patient wallet
+                  Wallet
                 </th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">
-                  DOB
+                  Department
                 </th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">
-                  Blood
+                  License
                 </th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">
-                  Phone
-                </th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">
-                  Emergency
+                  Active
                 </th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">
                   Registered
@@ -369,17 +311,17 @@ export function PatientsClient() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={6} className="px-4 py-12 text-center">
                     <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
-                    No patients match your filters.
+                    No staff match your filters.
                   </td>
                 </tr>
               ) : (
@@ -388,23 +330,18 @@ export function PatientsClient() {
                     key={r.pubkey.toBase58()}
                     className="border-b border-border last:border-0 hover:bg-muted/30"
                   >
-                    <td className="px-4 py-3 font-medium text-card-foreground">
-                      {r.fullName}
+                    <td className="px-4 py-3">
+                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                        {staffRoleLabel(r.role)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {shortenPk(r.wallet, 5)}
                     </td>
+                    <td className="px-4 py-3 text-card-foreground">{r.department}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{r.licenseNumber}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {r.dateOfBirth}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        {r.bloodType}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{r.phone}</td>
-                    <td className="max-w-[140px] truncate px-4 py-3 text-muted-foreground">
-                      {r.emergencyContact}
+                      {r.isActive ? "Yes" : "No"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                       {new Date(r.registeredAt.toNumber() * 1000).toLocaleString()}
@@ -418,89 +355,61 @@ export function PatientsClient() {
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="top-[45%] max-h-[min(85dvh,560px)] overflow-y-auto sm:top-1/2 sm:max-w-md">
+        <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Register patient</DialogTitle>
+            <DialogTitle>Add staff</DialogTitle>
             <DialogDescription>
-              {/*Creates an on-chain patient account via{" "}
-              <code className="text-xs">register_patient</code>. You must be the
-              hospital authority or an active manager.*/}
+              On-chain <code className="text-xs">add_staff</code> for a doctor, nurse,
+              or other role. Signer must be hospital authority or manager.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="grid gap-4">
-          <Button type="submit" disabled={submitting || !canTransact}>
-                {submitting ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Submitting…
-                  </>
-                ) : (
-                  "Submit on-chain"
-                )}
-              </Button>
             <div className="grid gap-2">
-              <Label htmlFor="patient-wallet">Patient wallet (Solana)</Label>
+              <Label htmlFor="staff-wallet">Staff wallet (Solana)</Label>
               <Input
-                id="patient-wallet"
-                placeholder="Patient's public key"
-                value={patientWalletStr}
-                onChange={(e) => setPatientWalletStr(e.target.value)}
+                id="staff-wallet"
+                placeholder="Staff member public key"
+                value={staffWalletStr}
+                onChange={(e) => setStaffWalletStr(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="full-name">Full name</Label>
-              <Input
-                id="full-name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                maxLength={64}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="dob">Date of birth</Label>
-              <Input
-                id="dob"
-                placeholder="YYYY-MM-DD"
-                value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
-                maxLength={16}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="blood">Blood type</Label>
+              <Label htmlFor="staff-role">Role</Label>
               <select
-                id="blood"
-                value={bloodType}
-                onChange={(e) => setBloodType(e.target.value)}
+                id="staff-role"
+                value={roleKey}
+                onChange={(e) =>
+                  setRoleKey(e.target.value as (typeof ROLE_OPTIONS)[number]["value"])
+                }
                 className="h-9 rounded-md border border-input bg-background px-3 text-sm"
               >
-                {BLOOD_FILTERS.filter((b) => b !== "All").map((b) => (
-                  <option key={b} value={b}>
-                    {b}
+                {ROLE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="phone">Phone</Label>
+              <Label htmlFor="dept">Department</Label>
               <Input
-                id="phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                maxLength={24}
-              />
-            </div>
-           {/*} <div className="grid gap-2">
-              <Label htmlFor="emergency">Emergency contact</Label>
-              <Input
-                id="emergency"
-                value={emergencyContact}
-                onChange={(e) => setEmergencyContact(e.target.value)}
+                id="dept"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
                 maxLength={64}
               />
-            </div> */}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="license">License number</Label>
+              <Input
+                id="license"
+                value={licenseNumber}
+                onChange={(e) => setLicenseNumber(e.target.value)}
+                maxLength={32}
+              />
+            </div>
             {formError ? (
               <p className="text-sm text-destructive">{formError}</p>
             ) : null}
