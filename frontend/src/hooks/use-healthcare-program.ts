@@ -24,20 +24,26 @@ export function useHealthcareProgram() {
   const hospitalAuthority = useHospitalAuthorityPubkey();
 
   const provider = useMemo(() => {
-    if (
-      !wallet.publicKey ||
-      !wallet.signTransaction ||
-      !wallet.signAllTransactions
-    ) {
+    if (!wallet.publicKey || !wallet.signTransaction) {
       return null;
     }
-    return createAnchorProvider(connection, wallet as unknown as Wallet);
+
+    // Some wallet adapters expose `signTransaction` but not `signAllTransactions`.
+    // Anchor expects both, so we provide a safe fallback.
+    const anchorWallet = {
+      publicKey: wallet.publicKey,
+      signTransaction: wallet.signTransaction,
+      signAllTransactions:
+        wallet.signAllTransactions ??
+        (async (txs) => Promise.all(txs.map((tx) => wallet.signTransaction!(tx)))),
+    } as unknown as Wallet;
+
+    return createAnchorProvider(connection, anchorWallet);
   }, [
     connection,
     wallet.publicKey,
     wallet.signAllTransactions,
     wallet.signTransaction,
-    wallet,
   ]);
 
   const program = useMemo(() => {

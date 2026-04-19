@@ -223,30 +223,20 @@ export function PatientsClient() {
         systemProgram: SystemProgram.programId,
       };
 
-      const tx = isAuthority
-        ? await hp.methods
-            .registerPatient(
-              fullName.trim(),
-              dateOfBirth.trim(),
-              bloodType.trim(),
-              phone.trim(),
-              emergencyContact.trim()
-            )
-            .accounts(base)
-            .rpc()
-        : await hp.methods
-            .registerPatient(
-              fullName.trim(),
-              dateOfBirth.trim(),
-              bloodType.trim(),
-              phone.trim(),
-              emergencyContact.trim()
-            )
-            .accounts({
-              ...base,
-              manager: managerAccount,
-            })
-            .rpc();
+      const tx = await hp.methods
+        .registerPatient(
+          fullName.trim(),
+          dateOfBirth.trim(),
+          bloodType.trim(),
+          phone.trim(),
+          emergencyContact.trim()
+        )
+        .accounts({
+          ...base,
+          // Explicitly pass null for optional account when authority signs.
+          manager: isAuthority ? null : managerAccount,
+        } as unknown as Record<string, PublicKey>)
+        .rpc();
 
       await connection.confirmTransaction(tx, "confirmed");
       toastSolanaSuccess("Patient registered", tx);
@@ -418,7 +408,7 @@ export function PatientsClient() {
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="top-[45%] max-h-[min(85dvh,560px)] overflow-y-auto sm:top-1/2 sm:max-w-md">
+        <DialogContent className="!top-4 !translate-y-0 fixed left-1/2 -translate-x-1/2 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Register patient</DialogTitle>
             <DialogDescription>
