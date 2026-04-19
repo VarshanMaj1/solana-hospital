@@ -422,22 +422,12 @@ export function PatientsClient() {
           <DialogHeader>
             <DialogTitle>Register patient</DialogTitle>
             <DialogDescription>
-              {/*Creates an on-chain patient account via{" "}
+              Creates an on-chain patient account via{" "}
               <code className="text-xs">register_patient</code>. You must be the
-              hospital authority or an active manager.*/}
+              hospital authority or an active manager.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="grid gap-4">
-          <Button type="submit" disabled={submitting || !canTransact}>
-                {submitting ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Submitting…
-                  </>
-                ) : (
-                  "Submit on-chain"
-                )}
-              </Button>
             <div className="grid gap-2">
               <Label htmlFor="patient-wallet">Patient wallet (Solana)</Label>
               <Input
@@ -492,7 +482,7 @@ export function PatientsClient() {
                 maxLength={24}
               />
             </div>
-           {/*} <div className="grid gap-2">
+            <div className="grid gap-2">
               <Label htmlFor="emergency">Emergency contact</Label>
               <Input
                 id="emergency"
@@ -500,7 +490,7 @@ export function PatientsClient() {
                 onChange={(e) => setEmergencyContact(e.target.value)}
                 maxLength={64}
               />
-            </div> */}
+            </div>
             {formError ? (
               <p className="text-sm text-destructive">{formError}</p>
             ) : null}
