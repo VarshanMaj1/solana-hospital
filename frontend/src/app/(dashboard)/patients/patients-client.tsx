@@ -159,62 +159,65 @@ export function PatientsClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) {
+      return;
+    }
     setFormError(null);
-    if (!program || !hospitalAuthority || !publicKey) {
-      setFormError("Connect a wallet and configure hospital authority.");
-      return;
-    }
-
-    let patientWalletPk: PublicKey;
-    try {
-      patientWalletPk = new PublicKey(patientWalletStr.trim());
-    } catch {
-      setFormError("Invalid patient wallet address.");
-      return;
-    }
-
-    if (
-      !fullName.trim() ||
-      !dateOfBirth.trim() ||
-      !bloodType.trim() ||
-      !phone.trim() ||
-      !emergencyContact.trim()
-    ) {
-      setFormError("All fields are required.");
-      return;
-    }
-
-    const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
-    const [patientAccount] = patientPda(hospitalPda, patientWalletPk);
-    const existing = await connection.getAccountInfo(patientAccount);
-    if (existing) {
-      setFormError("A patient is already registered for this wallet.");
-      return;
-    }
-
-    const isAuthority = publicKey.equals(hospitalAuthority);
-    const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-    const managerInfo = await connection.getAccountInfo(managerAccount);
-    const isManager =
-      managerInfo !== null &&
-      managerInfo.data.length > 0 &&
-      !isAuthority;
-
-    if (!isAuthority && !isManager) {
-      setFormError(
-        "Your wallet must be the hospital authority or a registered manager."
-      );
-      return;
-    }
-
-    const hp = asHealthcareProgram(program);
-    if (!hp) {
-      setFormError("Program not ready.");
-      return;
-    }
-
     setSubmitting(true);
     try {
+      if (!program || !hospitalAuthority || !publicKey) {
+        setFormError("Connect a wallet and configure hospital authority.");
+        return;
+      }
+
+      let patientWalletPk: PublicKey;
+      try {
+        patientWalletPk = new PublicKey(patientWalletStr.trim());
+      } catch {
+        setFormError("Invalid patient wallet address.");
+        return;
+      }
+
+      if (
+        !fullName.trim() ||
+        !dateOfBirth.trim() ||
+        !bloodType.trim() ||
+        !phone.trim() ||
+        !emergencyContact.trim()
+      ) {
+        setFormError("All fields are required.");
+        return;
+      }
+
+      const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
+      const [patientAccount] = patientPda(hospitalPda, patientWalletPk);
+      const existing = await connection.getAccountInfo(patientAccount);
+      if (existing) {
+        setFormError("A patient is already registered for this wallet.");
+        return;
+      }
+
+      const isAuthority = publicKey.equals(hospitalAuthority);
+      const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
+      const managerInfo = await connection.getAccountInfo(managerAccount);
+      const isManager =
+        managerInfo !== null &&
+        managerInfo.data.length > 0 &&
+        !isAuthority;
+
+      if (!isAuthority && !isManager) {
+        setFormError(
+          "Your wallet must be the hospital authority or a registered manager."
+        );
+        return;
+      }
+
+      const hp = asHealthcareProgram(program);
+      if (!hp) {
+        setFormError("Program not ready.");
+        return;
+      }
+
       const base = {
         hospital: hospitalPda,
         admin: publicKey,
