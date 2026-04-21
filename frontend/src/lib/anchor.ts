@@ -38,6 +38,36 @@ export const PROGRAM_ID = new PublicKey(
 
 export type HealthcareIdl = typeof healthcareIdl;
 
+function getValidatedHealthcareIdl(): Idl {
+  const maybeModule = healthcareIdl as unknown as { default?: unknown };
+  const idlValue =
+    maybeModule &&
+    typeof maybeModule === "object" &&
+    "default" in maybeModule &&
+    maybeModule.default
+      ? maybeModule.default
+      : healthcareIdl;
+
+  if (!idlValue || typeof idlValue !== "object") {
+    throw new Error("Invalid healthcare IDL: import did not resolve to an object.");
+  }
+
+  const candidate = idlValue as {
+    instructions?: unknown;
+    accounts?: unknown;
+  };
+
+  if (!Array.isArray(candidate.instructions) || candidate.instructions.length === 0) {
+    throw new Error("Invalid healthcare IDL: missing or empty instructions.");
+  }
+
+  if (!Array.isArray(candidate.accounts) || candidate.accounts.length === 0) {
+    throw new Error("Invalid healthcare IDL: missing or empty accounts.");
+  }
+
+  return idlValue as Idl;
+}
+
 /**
  * Build an Anchor provider from a Solana connection and a wallet that implements
  * Anchor’s `Wallet` interface (e.g. `useWallet()` when connected).
@@ -57,9 +87,13 @@ export function createAnchorProvider(
  * with the file produced by `anchor idl build` in your program workspace.
  */
 export function getHealthcareProgram(provider: AnchorProvider) {
-  return new Program(healthcareIdl as Idl, provider);
+  const idl = getValidatedHealthcareIdl();
+  const idlWithAddress = {
+    ...idl,
+    address: PROGRAM_ID.toBase58(),
+  } as Idl;
+  return new Program(idlWithAddress, provider);
 }
-
 /**
  * Registers the provider with Anchor’s global `getProvider()` (optional).
  * Call when the wallet connects; useful for code that expects a default provider.

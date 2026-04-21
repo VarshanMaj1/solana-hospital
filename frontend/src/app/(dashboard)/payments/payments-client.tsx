@@ -21,6 +21,7 @@ import {
   useHospitalAuthorityPubkey,
 } from "@/hooks/use-healthcare-program";
 import { PROGRAM_ID } from "@/lib/anchor";
+import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/explorer";
 import {
@@ -456,7 +457,7 @@ export function PaymentsClient() {
     }
 
     const [paymentPk] = paymentPda(hospitalPda, nextPaymentId);
-    const exists = await connection.getAccountInfo(paymentPk);
+    const exists = await getAccountInfoWithRetry(connection, paymentPk);
     if (exists) {
       setFormError("Payment PDA already exists; refresh and retry.");
       return;
@@ -464,11 +465,11 @@ export function PaymentsClient() {
 
     const isAuthority = publicKey.equals(hospitalAuthority);
     const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-    const managerInfo = await connection.getAccountInfo(managerAccount);
+    const managerInfo = await getAccountInfoWithRetry(connection, managerAccount);
     const isManager =
       Boolean(managerInfo?.data.length) && !isAuthority;
     const [staffAccount] = staffPda(hospitalPda, publicKey);
-    const staffInfo = await connection.getAccountInfo(staffAccount);
+    const staffInfo = await getAccountInfoWithRetry(connection, staffAccount);
     const isStaff = Boolean(staffInfo?.data.length) && !isAuthority && !isManager;
 
     if (!isAuthority && !isManager && !isStaff) {

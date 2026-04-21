@@ -1,3 +1,4 @@
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AppToaster } from "@/components/app-toaster";
@@ -31,16 +32,16 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
-      <body className="min-h-full bg-background font-sans text-foreground antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <SolanaWalletProvider>{children}</SolanaWalletProvider>
-          <AppToaster />
-        </ThemeProvider>
+      <body
+        suppressHydrationWarning
+        className="min-h-full bg-background font-sans text-foreground antialiased"
+      >
+        <SolanaWalletProvider>
+          <ThemeProvider>
+            {children}
+            <AppToaster />
+          </ThemeProvider>
+        </SolanaWalletProvider>
       </body>
     </html>
   );

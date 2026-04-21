@@ -26,6 +26,7 @@ import {
   useHealthcareProgram,
   useHospitalAuthorityPubkey,
 } from "@/hooks/use-healthcare-program";
+import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
 import {
   hospitalAuthorityPda,
@@ -288,7 +289,7 @@ export function RecordsClient() {
 
     const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
     const [staffAccount] = staffPda(hospitalPda, publicKey);
-    const staffInfo = await connection.getAccountInfo(staffAccount);
+    const staffInfo = await getAccountInfoWithRetry(connection, staffAccount);
     if (!staffInfo?.data.length) {
       setFormError(
         "Your wallet must have an active staff account for this hospital to create records."
@@ -360,7 +361,7 @@ export function RecordsClient() {
     const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
     const isAuthority = publicKey.equals(hospitalAuthority);
     const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-    const managerInfo = await connection.getAccountInfo(managerAccount);
+    const managerInfo = await getAccountInfoWithRetry(connection, managerAccount);
     const isManager =
       Boolean(managerInfo?.data.length) && !isAuthority;
     const [staffAccount] = staffPda(hospitalPda, publicKey);

@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useHealthcareProgram, useHospitalAuthorityPubkey } from "@/hooks/use-healthcare-program";
+import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
 import { hospitalAuthorityPda, managerWalletPda, staffPda } from "@/lib/pda";
 import {
@@ -164,7 +165,7 @@ export function StaffClient() {
 
     const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
     const [staffAccount] = staffPda(hospitalPda, staffWalletPk);
-    const existing = await connection.getAccountInfo(staffAccount);
+    const existing = await getAccountInfoWithRetry(connection, staffAccount);
     if (existing) {
       setFormError("Staff is already registered for this wallet.");
       return;
@@ -172,7 +173,7 @@ export function StaffClient() {
 
     const isAuthority = publicKey.equals(hospitalAuthority);
     const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-    const managerInfo = await connection.getAccountInfo(managerAccount);
+    const managerInfo = await getAccountInfoWithRetry(connection, managerAccount);
     const isManager =
       managerInfo !== null &&
       managerInfo.data.length > 0 &&

@@ -5,13 +5,14 @@ import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { BackpackWalletAdapter } from "@solana/wallet-adapter-backpack";
 import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
-import { getRpcEndpoint } from "@/lib/anchor";
+import { DEFAULT_CLUSTER, getRpcEndpoint } from "@/lib/anchor";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -25,14 +26,23 @@ type Props = {
  */
 export function SolanaWalletProvider({ children }: Props) {
   const endpoint = useMemo(() => getRpcEndpoint(), []);
+  const network = useMemo(
+    () =>
+      DEFAULT_CLUSTER === "mainnet-beta"
+        ? WalletAdapterNetwork.Mainnet
+        : DEFAULT_CLUSTER === "testnet"
+          ? WalletAdapterNetwork.Testnet
+          : WalletAdapterNetwork.Devnet,
+    []
+  );
 
   const wallets = useMemo(
     () => [
       new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
+      new SolflareWalletAdapter({ network }),
       new BackpackWalletAdapter(),
     ],
-    []
+    [network]
   );
 
   return (

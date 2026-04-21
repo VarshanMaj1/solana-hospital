@@ -3,7 +3,7 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Loader2, Plus, Search } from "lucide-react";
 import * as React from "react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useHealthcareProgram, useHospitalAuthorityPubkey } from "@/hooks/use-healthcare-program";
 import { hospitalAuthorityPda, managerWalletPda, patientPda } from "@/lib/pda";
+import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
 import {
   asHealthcareProgram,
@@ -66,6 +67,7 @@ export function PatientsClient() {
   const [bloodType, setBloodType] = React.useState("O+");
   const [phone, setPhone] = React.useState("");
   const [emergencyContact, setEmergencyContact] = React.useState("");
+  const lastLoadKeyRef = React.useRef<string | null>(null);
 
   const loadPatients = React.useCallback(async () => {
     const hp = asHealthcareProgram(program);
@@ -126,8 +128,13 @@ export function PatientsClient() {
   }, [program, hospitalAuthority]);
 
   React.useEffect(() => {
+    const key = `${program ? "ready" : "none"}:${hospitalAuthority?.toBase58() ?? "none"}`;
+    if (lastLoadKeyRef.current === key) {
+      return;
+    }
+    lastLoadKeyRef.current = key;
     void loadPatients();
-  }, [loadPatients]);
+  }, [program, hospitalAuthority, loadPatients]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -191,7 +198,7 @@ export function PatientsClient() {
 
       const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
       const [patientAccount] = patientPda(hospitalPda, patientWalletPk);
-      const existing = await connection.getAccountInfo(patientAccount);
+      const existing = await getAccountInfoWithRetry(connection, patientAccount);
       if (existing) {
         setFormError("A patient is already registered for this wallet.");
         return;
@@ -199,7 +206,9 @@ export function PatientsClient() {
 
       const isAuthority = publicKey.equals(hospitalAuthority);
       const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-      const managerInfo = await connection.getAccountInfo(managerAccount);
+      const managerInfo = isAuthority
+        ? null
+        : await getAccountInfoWithRetry(connection, managerAccount);
       const isManager =
         managerInfo !== null &&
         managerInfo.data.length > 0 &&
@@ -215,6 +224,30 @@ export function PatientsClient() {
       const hp = asHealthcareProgram(program);
       if (!hp) {
         setFormError("Program not ready.");
+        return;
+      }
+      const deployedProgram = await getAccountInfoWithRetry(connection, hp.programId);
+      if (!deployedProgram) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const mockRow: PatientRow = {
+          pubkey: patientAccount,
+          hospital: hospitalPda,
+          wallet: patientWalletPk,
+          fullName: fullName.trim(),
+          dateOfBirth: dateOfBirth.trim(),
+          bloodType: bloodType.trim(),
+          phone: phone.trim(),
+          emergencyContact: emergencyContact.trim(),
+          registeredAt: { toNumber: () => nowSec },
+          nextRecordId: { toNumber: () => 0 },
+          bump: 0,
+        };
+        setRows((prev) => [mockRow, ...prev]);
+        setModalOpen(false);
+        resetForm();
+        setFormError(
+          "Program is not deployed on the current network. Added a temporary local mock patient."
+        );
         return;
       }
 
@@ -247,6 +280,14 @@ export function PatientsClient() {
       resetForm();
       await loadPatients();
     } catch (err) {
+      if (err instanceof SendTransactionError) {
+        try {
+          const logs = await err.getLogs(connection);
+          console.error("Solana simulation logs:", logs);
+        } catch (logsErr) {
+          console.error("Failed to fetch simulation logs:", logsErr);
+        }
+      }
       console.error(err);
       toastSolanaError("Could not register patient", err);
       setFormError(

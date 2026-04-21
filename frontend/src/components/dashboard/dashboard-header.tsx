@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { usePathname } from "next/navigation";
@@ -53,10 +54,15 @@ function resolveHeader(pathname: string) {
 }
 
 export function DashboardHeader() {
+  const [mounted, setMounted] = React.useState(false);
   const pathname = usePathname();
   const { title, description } = resolveHeader(pathname);
   const { publicKey } = useWallet();
   const { label: roleLabel, isResolving } = useWalletHospitalRole();
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-md md:px-6">
@@ -78,7 +84,11 @@ export function DashboardHeader() {
           </span>
         ) : null}
         <ThemeToggle />
-        <WalletMultiButton className="!h-9 !rounded-md !bg-primary !font-medium !text-primary-foreground hover:!bg-primary/90" />
+        {mounted ? (
+          <WalletMultiButton className="!h-9 !rounded-md !bg-primary !font-medium !text-primary-foreground hover:!bg-primary/90" />
+        ) : (
+          <div className="h-9 w-[140px] rounded-md border border-border bg-muted/40" />
+        )}
       </div>
     </header>
   );
