@@ -38,6 +38,19 @@ const BLOOD_FILTERS = [
 ] as const;
 
 type PatientRow = PatientAccountData & { pubkey: PublicKey };
+type StoredPatientRow = {
+  pubkey: string;
+  hospital: string;
+  wallet: string;
+  fullName: string;
+  dateOfBirth: string;
+  bloodType: string;
+  phone: string;
+  emergencyContact: string;
+  registeredAt: number;
+  nextRecordId: number;
+  bump: number;
+};
 
 function shortenPk(pk: PublicKey, chars = 4) {
   const s = pk.toBase58();
@@ -68,11 +81,74 @@ export function PatientsClient() {
   const [phone, setPhone] = React.useState("");
   const [emergencyContact, setEmergencyContact] = React.useState("");
   const lastLoadKeyRef = React.useRef<string | null>(null);
+  const storageKey = React.useMemo(
+    () => `patients:${hospitalAuthority?.toBase58() ?? "default"}`,
+    [hospitalAuthority]
+  );
+
+  const readPatientsFromStorage = React.useCallback((): PatientRow[] => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as StoredPatientRow[];
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.map((r) => ({
+        pubkey: new PublicKey(r.pubkey),
+        hospital: new PublicKey(r.hospital),
+        wallet: new PublicKey(r.wallet),
+        fullName: r.fullName,
+        dateOfBirth: r.dateOfBirth,
+        bloodType: r.bloodType,
+        phone: r.phone,
+        emergencyContact: r.emergencyContact,
+        registeredAt: { toNumber: () => r.registeredAt },
+        nextRecordId: { toNumber: () => r.nextRecordId },
+        bump: r.bump,
+      }));
+    } catch (err) {
+      console.error("Failed to read patients from localStorage:", err);
+      return [];
+    }
+  }, [storageKey]);
+
+  const writePatientsToStorage = React.useCallback(
+    (nextRows: PatientRow[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      try {
+        const serialized: StoredPatientRow[] = nextRows.map((r) => ({
+          pubkey: r.pubkey.toBase58(),
+          hospital: r.hospital.toBase58(),
+          wallet: r.wallet.toBase58(),
+          fullName: r.fullName,
+          dateOfBirth: r.dateOfBirth,
+          bloodType: r.bloodType,
+          phone: r.phone,
+          emergencyContact: r.emergencyContact,
+          registeredAt: r.registeredAt.toNumber(),
+          nextRecordId: r.nextRecordId.toNumber(),
+          bump: r.bump,
+        }));
+        window.localStorage.setItem(storageKey, JSON.stringify(serialized));
+      } catch (err) {
+        console.error("Failed to write patients to localStorage:", err);
+      }
+    },
+    [storageKey]
+  );
 
   const loadPatients = React.useCallback(async () => {
     const hp = asHealthcareProgram(program);
     if (!hp || !hospitalAuthority) {
-      setRows([]);
+      setRows(readPatientsFromStorage());
       setLoading(false);
       return;
     }
@@ -117,15 +193,20 @@ export function PatientsClient() {
         };
       });
       mapped.sort((x, y) => y.registeredAt.toNumber() - x.registeredAt.toNumber());
-      setRows(mapped);
+      if (mapped.length === 0) {
+        setRows(readPatientsFromStorage());
+      } else {
+        setRows(mapped);
+        writePatientsToStorage(mapped);
+      }
     } catch (e) {
       console.error(e);
       setError(e instanceof Error ? e.message : "Failed to load patients");
-      setRows([]);
+      setRows(readPatientsFromStorage());
     } finally {
       setLoading(false);
     }
-  }, [program, hospitalAuthority]);
+  }, [program, hospitalAuthority, readPatientsFromStorage, writePatientsToStorage]);
 
   React.useEffect(() => {
     const key = `${program ? "ready" : "none"}:${hospitalAuthority?.toBase58() ?? "none"}`;
@@ -242,7 +323,11 @@ export function PatientsClient() {
           nextRecordId: { toNumber: () => 0 },
           bump: 0,
         };
-        setRows((prev) => [mockRow, ...prev]);
+        setRows((prev) => {
+          const next = [mockRow, ...prev];
+          writePatientsToStorage(next);
+          return next;
+        });
         setModalOpen(false);
         resetForm();
         setFormError(
@@ -276,6 +361,26 @@ export function PatientsClient() {
 
       await connection.confirmTransaction(tx, "confirmed");
       toastSolanaSuccess("Patient registered", tx);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const localRow: PatientRow = {
+        pubkey: patientAccount,
+        hospital: hospitalPda,
+        wallet: patientWalletPk,
+        fullName: fullName.trim(),
+        dateOfBirth: dateOfBirth.trim(),
+        bloodType: bloodType.trim(),
+        phone: phone.trim(),
+        emergencyContact: emergencyContact.trim(),
+        registeredAt: { toNumber: () => nowSec },
+        nextRecordId: { toNumber: () => 0 },
+        bump: 0,
+      };
+      setRows((prev) => {
+        const deduped = prev.filter((r) => !r.pubkey.equals(localRow.pubkey));
+        const next = [localRow, ...deduped];
+        writePatientsToStorage(next);
+        return next;
+      });
       setModalOpen(false);
       resetForm();
       await loadPatients();
