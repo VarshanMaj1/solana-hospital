@@ -3,7 +3,7 @@
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Loader2, Plus, Search } from "lucide-react";
 import * as React from "react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useHealthcareProgram, useHospitalAuthorityPubkey } from "@/hooks/use-healthcare-program";
 import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
-import { hospitalAuthorityPda, managerWalletPda, staffPda } from "@/lib/pda";
+import { hospitalAuthorityPda, staffPda } from "@/lib/pda";
 import {
   asHealthcareProgram,
   staffRoleLabel,
@@ -79,12 +79,19 @@ export function StaffClient() {
   const [roleKey, setRoleKey] = React.useState<(typeof ROLE_OPTIONS)[number]["value"]>("doctor");
   const [department, setDepartment] = React.useState("");
   const [licenseNumber, setLicenseNumber] = React.useState("");
+  const lastLoadKeyRef = React.useRef<string | null>(null);
+  const inFlightLoadRef = React.useRef(false);
 
   const loadStaff = React.useCallback(async () => {
+    if (inFlightLoadRef.current) {
+      return;
+    }
+    inFlightLoadRef.current = true;
     const hp = asHealthcareProgram(program);
     if (!hp || !hospitalAuthority) {
       setRows([]);
       setLoading(false);
+      inFlightLoadRef.current = false;
       return;
     }
     setLoading(true);
@@ -111,12 +118,18 @@ export function StaffClient() {
       setRows([]);
     } finally {
       setLoading(false);
+      inFlightLoadRef.current = false;
     }
   }, [program, hospitalAuthority]);
 
   React.useEffect(() => {
+    const key = `${program ? "ready" : "none"}:${hospitalAuthority?.toBase58() ?? "none"}`;
+    if (lastLoadKeyRef.current === key) {
+      return;
+    }
+    lastLoadKeyRef.current = key;
     void loadStaff();
-  }, [loadStaff]);
+  }, [program, hospitalAuthority, loadStaff]);
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -144,6 +157,9 @@ export function StaffClient() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) {
+      return;
+    }
     setFormError(null);
     if (!program || !hospitalAuthority || !publicKey) {
       setFormError("Connect a wallet and configure hospital authority.");
@@ -171,30 +187,36 @@ export function StaffClient() {
       return;
     }
 
-    const isAuthority = publicKey.equals(hospitalAuthority);
-    const [managerAccount] = managerWalletPda(hospitalPda, publicKey);
-    const managerInfo = await getAccountInfoWithRetry(connection, managerAccount);
-    const isManager =
-      managerInfo !== null &&
-      managerInfo.data.length > 0 &&
-      !isAuthority;
-
-    if (!isAuthority && !isManager) {
-      setFormError(
-        "Your wallet must be the hospital authority or a registered manager."
-      );
-      return;
-    }
-
     const hp = asHealthcareProgram(program);
     if (!hp) {
       setFormError("Program not ready.");
       return;
     }
-
     const roleArg = ROLE_OPTIONS.find((o) => o.value === roleKey)?.arg ?? {
       doctor: {},
     };
+    const deployedProgram = await getAccountInfoWithRetry(connection, hp.programId);
+    if (!deployedProgram) {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const mockRow: StaffRow = {
+        pubkey: staffAccount,
+        hospital: hospitalPda,
+        wallet: staffWalletPk,
+        role: roleArg,
+        department: department.trim(),
+        licenseNumber: licenseNumber.trim(),
+        isActive: true,
+        registeredAt: { toNumber: () => nowSec },
+        bump: 0,
+      };
+      setRows((prev) => [mockRow, ...prev]);
+      setModalOpen(false);
+      resetForm();
+      setFormError(
+        "Program is not deployed on the current network. Added a temporary local mock staff record."
+      );
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -206,18 +228,13 @@ export function StaffClient() {
         systemProgram: SystemProgram.programId,
       };
 
-      const tx = isAuthority
-        ? await hp.methods
-            .addStaff(roleArg, department.trim(), licenseNumber.trim())
-            .accounts(base)
-            .rpc()
-        : await hp.methods
-            .addStaff(roleArg, department.trim(), licenseNumber.trim())
-            .accounts({
-              ...base,
-              manager: managerAccount,
-            })
-            .rpc();
+      const tx = await hp.methods
+        .addStaff(roleArg, department.trim(), licenseNumber.trim())
+        .accounts({
+          ...base,
+          manager: publicKey,
+        })
+        .rpc();
 
       await connection.confirmTransaction(tx, "confirmed");
       toastSolanaSuccess("Staff member added", tx);
@@ -225,6 +242,14 @@ export function StaffClient() {
       resetForm();
       await loadStaff();
     } catch (err) {
+      if (err instanceof SendTransactionError) {
+        try {
+          const logs = await err.getLogs(connection);
+          console.error("Solana simulation logs:", logs);
+        } catch (logsErr) {
+          console.error("Failed to fetch simulation logs:", logsErr);
+        }
+      }
       console.error(err);
       toastSolanaError("Could not add staff", err);
       setFormError(

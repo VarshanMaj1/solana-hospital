@@ -408,7 +408,7 @@ export function MedicinesClient() {
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-md">
+        <DialogContent className="!top-4 !translate-y-0 fixed left-1/2 -translate-x-1/2 max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add medicine</DialogTitle>
             <DialogDescription>
