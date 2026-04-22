@@ -33,6 +33,17 @@ const ROLE_OPTIONS = [
 ] as const;
 
 type StaffRow = StaffAccountData & { pubkey: PublicKey };
+type StoredStaffRow = {
+  pubkey: string;
+  hospital: string;
+  wallet: string;
+  role: StaffRoleArg | Record<string, unknown>;
+  department: string;
+  licenseNumber: string;
+  isActive: boolean;
+  registeredAt: number;
+  bump: number;
+};
 
 function shortenPk(pk: PublicKey, chars = 4) {
   const s = pk.toBase58();
@@ -81,6 +92,65 @@ export function StaffClient() {
   const [licenseNumber, setLicenseNumber] = React.useState("");
   const lastLoadKeyRef = React.useRef<string | null>(null);
   const inFlightLoadRef = React.useRef(false);
+  const storageKey = React.useMemo(
+    () => `staff:${hospitalAuthority?.toBase58() ?? "default"}`,
+    [hospitalAuthority]
+  );
+
+  const readStaffFromStorage = React.useCallback((): StaffRow[] => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as StoredStaffRow[];
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.map((r) => ({
+        pubkey: new PublicKey(r.pubkey),
+        hospital: new PublicKey(r.hospital),
+        wallet: new PublicKey(r.wallet),
+        role: r.role as StaffRoleArg,
+        department: r.department,
+        licenseNumber: r.licenseNumber,
+        isActive: r.isActive,
+        registeredAt: { toNumber: () => r.registeredAt },
+        bump: r.bump,
+      }));
+    } catch (err) {
+      console.error("Failed to read staff from localStorage:", err);
+      return [];
+    }
+  }, [storageKey]);
+
+  const writeStaffToStorage = React.useCallback(
+    (nextRows: StaffRow[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      try {
+        const serialized: StoredStaffRow[] = nextRows.map((r) => ({
+          pubkey: r.pubkey.toBase58(),
+          hospital: r.hospital.toBase58(),
+          wallet: r.wallet.toBase58(),
+          role: r.role as StaffRoleArg,
+          department: r.department,
+          licenseNumber: r.licenseNumber,
+          isActive: r.isActive,
+          registeredAt: r.registeredAt.toNumber(),
+          bump: r.bump,
+        }));
+        window.localStorage.setItem(storageKey, JSON.stringify(serialized));
+      } catch (err) {
+        console.error("Failed to write staff to localStorage:", err);
+      }
+    },
+    [storageKey]
+  );
 
   const loadStaff = React.useCallback(async () => {
     if (inFlightLoadRef.current) {
@@ -89,7 +159,7 @@ export function StaffClient() {
     inFlightLoadRef.current = true;
     const hp = asHealthcareProgram(program);
     if (!hp || !hospitalAuthority) {
-      setRows([]);
+      setRows(readStaffFromStorage());
       setLoading(false);
       inFlightLoadRef.current = false;
       return;
@@ -111,16 +181,21 @@ export function StaffClient() {
         normalizeStaffAccount(publicKey, account as StaffAccountData)
       );
       mapped.sort((x, y) => y.registeredAt.toNumber() - x.registeredAt.toNumber());
-      setRows(mapped);
+      if (mapped.length === 0) {
+        setRows(readStaffFromStorage());
+      } else {
+        setRows(mapped);
+        writeStaffToStorage(mapped);
+      }
     } catch (e) {
       console.error(e);
       setError(e instanceof Error ? e.message : "Failed to load staff");
-      setRows([]);
+      setRows(readStaffFromStorage());
     } finally {
       setLoading(false);
       inFlightLoadRef.current = false;
     }
-  }, [program, hospitalAuthority]);
+  }, [program, hospitalAuthority, readStaffFromStorage, writeStaffToStorage]);
 
   React.useEffect(() => {
     const key = `${program ? "ready" : "none"}:${hospitalAuthority?.toBase58() ?? "none"}`;
@@ -209,7 +284,11 @@ export function StaffClient() {
         registeredAt: { toNumber: () => nowSec },
         bump: 0,
       };
-      setRows((prev) => [mockRow, ...prev]);
+      setRows((prev) => {
+        const next = [mockRow, ...prev];
+        writeStaffToStorage(next);
+        return next;
+      });
       setModalOpen(false);
       resetForm();
       setFormError(
@@ -238,6 +317,24 @@ export function StaffClient() {
 
       await connection.confirmTransaction(tx, "confirmed");
       toastSolanaSuccess("Staff member added", tx);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const localRow: StaffRow = {
+        pubkey: staffAccount,
+        hospital: hospitalPda,
+        wallet: staffWalletPk,
+        role: roleArg,
+        department: department.trim(),
+        licenseNumber: licenseNumber.trim(),
+        isActive: true,
+        registeredAt: { toNumber: () => nowSec },
+        bump: 0,
+      };
+      setRows((prev) => {
+        const deduped = prev.filter((r) => !r.pubkey.equals(localRow.pubkey));
+        const next = [localRow, ...deduped];
+        writeStaffToStorage(next);
+        return next;
+      });
       setModalOpen(false);
       resetForm();
       await loadStaff();

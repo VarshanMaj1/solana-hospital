@@ -3,17 +3,38 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { dashboardNav } from "@/config/nav";
-import {
-  isNavHrefAllowed,
-  useWalletHospitalRole,
-} from "@/hooks/use-wallet-hospital-role";
+import { useIsAdmin } from "@/hooks/use-rbac-admin";
 import { cn } from "@/lib/utils";
 
 export function DashboardNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { role } = useWalletHospitalRole();
+  const isAdmin = useIsAdmin();
 
-  const items = dashboardNav.filter((item) => isNavHrefAllowed(role, item.href));
+  const items = dashboardNav
+    .filter((item) => {
+      if (isAdmin) {
+        return true;
+      }
+      return item.href !== "/patients" && item.href !== "/staff";
+    })
+    .map((item) => {
+      if (isAdmin) {
+        return item;
+      }
+      if (item.href === "/") {
+        return { ...item, label: "My Health Portal" };
+      }
+      if (item.href === "/records") {
+        return { ...item, label: "Medical History" };
+      }
+      if (item.href === "/medicines") {
+        return { ...item, label: "Prescriptions" };
+      }
+      if (item.href === "/payments") {
+        return { ...item, label: "Billing & Invoices" };
+      }
+      return item;
+    });
 
   return (
     <nav className="flex flex-1 flex-col gap-1" aria-label="Main navigation">

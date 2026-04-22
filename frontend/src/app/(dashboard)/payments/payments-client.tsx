@@ -24,6 +24,7 @@ import { PROGRAM_ID } from "@/lib/anchor";
 import { getAccountInfoWithRetry } from "@/lib/rpc-retry";
 import { toastSolanaError, toastSolanaSuccess } from "@/lib/solana-toast";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/explorer";
+import { useIsAdmin } from "@/hooks/use-rbac-admin";
 import {
   hospitalAuthorityPda,
   managerWalletPda,
@@ -186,6 +187,7 @@ export function PaymentsClient() {
   const hospitalAuthorityEnv = useHospitalAuthorityPubkey();
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const isAdmin = useIsAdmin();
 
   const hp = asHealthcareProgram(program);
 
@@ -213,11 +215,23 @@ export function PaymentsClient() {
   const [medicineKey, setMedicineKey] = React.useState("");
   const [amountLamportsStr, setAmountLamportsStr] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const lastLoadKeyRef = React.useRef<string | null>(null);
+  const inFlightLoadsRef = React.useRef({
+    patients: false,
+    medicines: false,
+    payments: false,
+    sigs: false,
+  });
 
   const loadPatients = React.useCallback(async () => {
+    if (inFlightLoadsRef.current.patients) {
+      return;
+    }
+    inFlightLoadsRef.current.patients = true;
     if (!hp || !hospitalAuthority) {
       setPatients([]);
       setLoadingPatients(false);
+      inFlightLoadsRef.current.patients = false;
       return;
     }
     setLoadingPatients(true);
@@ -238,13 +252,19 @@ export function PaymentsClient() {
       setPatients([]);
     } finally {
       setLoadingPatients(false);
+      inFlightLoadsRef.current.patients = false;
     }
   }, [hp, hospitalAuthority]);
 
   const loadMedicines = React.useCallback(async () => {
+    if (inFlightLoadsRef.current.medicines) {
+      return;
+    }
+    inFlightLoadsRef.current.medicines = true;
     if (!hp || !hospitalAuthority) {
       setMedicines([]);
       setLoadingMedicines(false);
+      inFlightLoadsRef.current.medicines = false;
       return;
     }
     setLoadingMedicines(true);
@@ -263,6 +283,7 @@ export function PaymentsClient() {
       setMedicines([]);
     } finally {
       setLoadingMedicines(false);
+      inFlightLoadsRef.current.medicines = false;
     }
   }, [hp, hospitalAuthority]);
 
@@ -293,9 +314,14 @@ export function PaymentsClient() {
   );
 
   const loadPayments = React.useCallback(async () => {
+    if (inFlightLoadsRef.current.payments) {
+      return;
+    }
+    inFlightLoadsRef.current.payments = true;
     if (!hp || !hospitalAuthority) {
       setPayments([]);
       setLoadingPayments(false);
+      inFlightLoadsRef.current.payments = false;
       return;
     }
     setLoadingPayments(true);
@@ -311,7 +337,11 @@ export function PaymentsClient() {
 
       const capped = decoded.slice(0, 40);
       const withSigs: PaymentRow[] = await Promise.all(
-        capped.map(async (row) => {
+        capped.map(async (row, idx) => {
+          // Signature lookups are very RPC-expensive; cap them to keep the UI responsive.
+          if (!isAdmin || idx >= 5) {
+            return { ...row, latestTxSig: null };
+          }
           try {
             const sigs = await connection.getSignaturesForAddress(row.pubkey, {
               limit: 1,
@@ -334,10 +364,20 @@ export function PaymentsClient() {
       setPayments([]);
     } finally {
       setLoadingPayments(false);
+      inFlightLoadsRef.current.payments = false;
     }
-  }, [hp, hospitalAuthority, connection]);
+  }, [hp, hospitalAuthority, connection, isAdmin]);
 
   const loadProgramSignatures = React.useCallback(async () => {
+    if (!isAdmin) {
+      setProgramSigs([]);
+      setLoadingSigs(false);
+      return;
+    }
+    if (inFlightLoadsRef.current.sigs) {
+      return;
+    }
+    inFlightLoadsRef.current.sigs = true;
     setLoadingSigs(true);
     try {
       const sigs = await connection.getSignaturesForAddress(PROGRAM_ID, {
@@ -355,33 +395,42 @@ export function PaymentsClient() {
       setProgramSigs([]);
     } finally {
       setLoadingSigs(false);
+      inFlightLoadsRef.current.sigs = false;
     }
-  }, [connection]);
+  }, [connection, isAdmin]);
 
   React.useEffect(() => {
+    const key = `${hp ? "ready" : "none"}:${hospitalAuthority?.toBase58() ?? "none"}`;
+    if (lastLoadKeyRef.current === key) {
+      return;
+    }
+    lastLoadKeyRef.current = key;
     void loadPatients();
     void loadMedicines();
-  }, [loadPatients, loadMedicines]);
-
-  React.useEffect(() => {
     void loadPayments();
-  }, [loadPayments]);
-
-  React.useEffect(() => {
     void loadProgramSignatures();
-  }, [loadProgramSignatures]);
+  }, [
+    hp,
+    hospitalAuthority,
+    loadPatients,
+    loadMedicines,
+    loadPayments,
+    loadProgramSignatures,
+  ]);
+
+  // Note: loadPayments/loadProgramSignatures are invoked by the guarded effect above.
 
   React.useEffect(() => {
     if (!patientKey) {
-      setRecords([]);
-      setRecordKey("");
+      setRecords((prev) => (prev.length === 0 ? prev : []));
+      setRecordKey((prev) => (prev === "" ? prev : ""));
       return;
     }
     try {
       const pk = new PublicKey(patientKey);
       void loadRecordsForPatient(pk);
     } catch {
-      setRecords([]);
+      setRecords((prev) => (prev.length === 0 ? prev : []));
     }
   }, [patientKey, loadRecordsForPatient]);
 
