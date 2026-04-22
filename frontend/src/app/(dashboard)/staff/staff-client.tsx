@@ -102,7 +102,9 @@ export function StaffClient() {
       return [];
     }
     try {
-      const raw = window.localStorage.getItem(storageKey);
+      const raw =
+        window.localStorage.getItem(storageKey) ??
+        window.localStorage.getItem("staff:default");
       if (!raw) {
         return [];
       }
@@ -145,6 +147,7 @@ export function StaffClient() {
           bump: r.bump,
         }));
         window.localStorage.setItem(storageKey, JSON.stringify(serialized));
+        window.localStorage.setItem("staff:default", JSON.stringify(serialized));
       } catch (err) {
         console.error("Failed to write staff to localStorage:", err);
       }
