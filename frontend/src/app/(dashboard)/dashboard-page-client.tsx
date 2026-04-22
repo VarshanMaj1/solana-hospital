@@ -12,15 +12,8 @@ import {
   UserSquare2,
   Users,
 } from "lucide-react";
+import * as React from "react";
 import { useIsAdmin } from "@/hooks/use-rbac-admin";
-
-/** Placeholder metrics — replace with on-chain / API counts when wired up. */
-const DASHBOARD_PLACEHOLDER = {
-  totalPatients: 1842,
-  totalStaff: 96,
-  totalRecords: 6210,
-  totalRevenueUsd: 128_450,
-} as const;
 
 const countFormatter = new Intl.NumberFormat("en-US");
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -29,32 +22,26 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-const adminOverviewCards = [
-  {
-    label: "Total patients",
-    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalPatients),
-    hint: "Demo data — connect program later",
-    icon: Users,
-  },
-  {
-    label: "Total staff",
-    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalStaff),
-    hint: "Demo data — connect program later",
-    icon: UserSquare2,
-  },
-  {
-    label: "Total records",
-    value: countFormatter.format(DASHBOARD_PLACEHOLDER.totalRecords),
-    hint: "Demo data — connect program later",
-    icon: FileText,
-  },
-  {
-    label: "Total revenue",
-    value: currencyFormatter.format(DASHBOARD_PLACEHOLDER.totalRevenueUsd),
-    hint: "Demo data — connect program later",
-    icon: DollarSign,
-  },
-] as const;
+function safeCountFromStorage(keys: string[]): number {
+  if (typeof window === "undefined") {
+    return 0;
+  }
+  for (const key of keys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        continue;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.length;
+      }
+    } catch {
+      // ignore and try next key
+    }
+  }
+  return 0;
+}
 
 const patientOverviewCards = [
   {
@@ -85,6 +72,59 @@ const patientOverviewCards = [
 
 export function DashboardPageClient() {
   const isAdmin = useIsAdmin();
+  const [counts, setCounts] = React.useState(() => ({
+    patients: 0,
+    staff: 0,
+    records: 0,
+  }));
+
+  React.useEffect(() => {
+    const hospitalAuthority = process.env.NEXT_PUBLIC_HOSPITAL_AUTHORITY?.trim();
+    const suffix = hospitalAuthority || "default";
+
+    const read = () => {
+      setCounts({
+        patients: safeCountFromStorage([`patients:${suffix}`, "patients:default"]),
+        staff: safeCountFromStorage([`staff:${suffix}`, "staff:default"]),
+        records: safeCountFromStorage([`records:${suffix}`, "records:default"]),
+      });
+    };
+
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
+  }, []);
+
+  const adminOverviewCards = React.useMemo(
+    () => [
+      {
+        label: "Total patients",
+        value: countFormatter.format(counts.patients),
+        hint: "Count from app data",
+        icon: Users,
+      },
+      {
+        label: "Total staff",
+        value: countFormatter.format(counts.staff),
+        hint: "Count from app data",
+        icon: UserSquare2,
+      },
+      {
+        label: "Total records",
+        value: countFormatter.format(counts.records),
+        hint: "Count from app data",
+        icon: FileText,
+      },
+      {
+        label: "Total revenue",
+        value: currencyFormatter.format(0),
+        hint: "Placeholder",
+        icon: DollarSign,
+      },
+    ],
+    [counts.patients, counts.records, counts.staff]
+  );
+
   const overviewCards = isAdmin ? adminOverviewCards : patientOverviewCards;
 
   return (

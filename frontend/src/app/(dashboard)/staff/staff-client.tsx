@@ -225,6 +225,24 @@ export function StaffClient() {
     });
   }, [rows, search]);
 
+  const handleDelete = React.useCallback(
+    (pubkey: PublicKey) => {
+      const ok =
+        typeof window === "undefined"
+          ? false
+          : window.confirm("Delete this staff entry? This cannot be undone.");
+      if (!ok) {
+        return;
+      }
+      setRows((prev) => {
+        const next = prev.filter((r) => !r.pubkey.equals(pubkey));
+        writeStaffToStorage(next);
+        return next;
+      });
+    },
+    [writeStaffToStorage]
+  );
+
   const resetForm = () => {
     setStaffWalletStr("");
     setRoleKey("doctor");
@@ -432,19 +450,22 @@ export function StaffClient() {
                 <th className="px-4 py-3 font-medium text-muted-foreground">
                   Registered
                 </th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td colSpan={7} className="px-4 py-12 text-center">
                     <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No staff match your filters.
@@ -471,6 +492,16 @@ export function StaffClient() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                       {new Date(r.registeredAt.toNumber() * 1000).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => handleDelete(r.pubkey)}
+                      >
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))

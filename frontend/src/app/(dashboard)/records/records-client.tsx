@@ -42,6 +42,32 @@ import {
 
 type PatientRow = PatientAccountData & { pubkey: PublicKey };
 type RecordRow = MedicalRecordAccountData & { pubkey: PublicKey };
+type StoredRecordRow = {
+  pubkey: string;
+  hospital: string;
+  patient: string;
+  authorStaff: string;
+  recordId: number;
+  diagnosis: string;
+  treatment: string;
+  notes: string;
+  visitDate: number;
+  createdAt: number;
+  updatedAt: number;
+  bump: number;
+};
+
+function isRateLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  const msg = err.message.toLowerCase();
+  return msg.includes("429") || msg.includes("rate limit") || msg.includes("too many request");
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function decodeMedicalRecord(
   account: MedicalRecordAccountData & Record<string, unknown>
@@ -145,6 +171,148 @@ export function RecordsClient() {
   );
 
   const hp = asHealthcareProgram(program);
+  const patientsStorageKey = React.useMemo(
+    () => `patients:${hospitalAuthority?.toBase58() ?? "default"}`,
+    [hospitalAuthority]
+  );
+  const recordsStorageKey = React.useMemo(
+    () => `records:${hospitalAuthority?.toBase58() ?? "default"}`,
+    [hospitalAuthority]
+  );
+
+  const readPatientsFromStorage = React.useCallback((): PatientRow[] => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    try {
+      const raws = [
+        window.localStorage.getItem(patientsStorageKey),
+        window.localStorage.getItem("patients:default"),
+      ].filter(Boolean) as string[];
+
+      const out: PatientRow[] = [];
+      const seen = new Set<string>();
+
+      for (const raw of raws) {
+        const parsed = JSON.parse(raw) as Array<{
+          pubkey: string;
+          hospital: string;
+          wallet: string;
+          fullName: string;
+          dateOfBirth: string;
+          bloodType: string;
+          phone: string;
+          emergencyContact: string;
+          registeredAt: number;
+          nextRecordId: number;
+          bump: number;
+        }>;
+        if (!Array.isArray(parsed)) {
+          continue;
+        }
+        for (const r of parsed) {
+          if (!r?.pubkey || seen.has(r.pubkey)) {
+            continue;
+          }
+          seen.add(r.pubkey);
+          out.push({
+            pubkey: new PublicKey(r.pubkey),
+            hospital: new PublicKey(r.hospital),
+            wallet: new PublicKey(r.wallet),
+            fullName: r.fullName,
+            dateOfBirth: r.dateOfBirth,
+            bloodType: r.bloodType,
+            phone: r.phone,
+            emergencyContact: r.emergencyContact,
+            registeredAt: { toNumber: () => r.registeredAt },
+            nextRecordId: { toNumber: () => r.nextRecordId },
+            bump: r.bump,
+          });
+        }
+      }
+
+      return out;
+    } catch (err) {
+      console.error("Failed to read patients from localStorage:", err);
+      return [];
+    }
+  }, [patientsStorageKey]);
+
+  const readRecordsFromStorage = React.useCallback((): RecordRow[] => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    try {
+      const raws = [
+        window.localStorage.getItem(recordsStorageKey),
+        window.localStorage.getItem("records:default"),
+      ].filter(Boolean) as string[];
+
+      const out: RecordRow[] = [];
+      const seen = new Set<string>();
+
+      for (const raw of raws) {
+        const parsed = JSON.parse(raw) as StoredRecordRow[];
+        if (!Array.isArray(parsed)) {
+          continue;
+        }
+        for (const r of parsed) {
+          if (!r?.pubkey || seen.has(r.pubkey)) {
+            continue;
+          }
+          seen.add(r.pubkey);
+          out.push({
+            pubkey: new PublicKey(r.pubkey),
+            hospital: new PublicKey(r.hospital),
+            patient: new PublicKey(r.patient),
+            authorStaff: new PublicKey(r.authorStaff),
+            recordId: { toNumber: () => r.recordId },
+            diagnosis: r.diagnosis,
+            treatment: r.treatment,
+            notes: r.notes,
+            visitDate: { toNumber: () => r.visitDate },
+            createdAt: { toNumber: () => r.createdAt },
+            updatedAt: { toNumber: () => r.updatedAt },
+            bump: r.bump,
+          });
+        }
+      }
+
+      return out;
+    } catch (err) {
+      console.error("Failed to read records from localStorage:", err);
+      return [];
+    }
+  }, [recordsStorageKey]);
+
+  const writeRecordsToStorage = React.useCallback(
+    (nextRows: RecordRow[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      try {
+        const serialized: StoredRecordRow[] = nextRows.map((r) => ({
+          pubkey: r.pubkey.toBase58(),
+          hospital: r.hospital.toBase58(),
+          patient: r.patient.toBase58(),
+          authorStaff: r.authorStaff.toBase58(),
+          recordId: r.recordId.toNumber(),
+          diagnosis: r.diagnosis,
+          treatment: r.treatment,
+          notes: r.notes,
+          visitDate: r.visitDate.toNumber(),
+          createdAt: r.createdAt.toNumber(),
+          updatedAt: r.updatedAt.toNumber(),
+          bump: r.bump,
+        }));
+        window.localStorage.setItem(recordsStorageKey, JSON.stringify(serialized));
+        window.localStorage.setItem("records:default", JSON.stringify(serialized));
+      } catch (err) {
+        console.error("Failed to write records to localStorage:", err);
+      }
+    },
+    [recordsStorageKey]
+  );
   const selectedPatientPk = React.useMemo(() => {
     if (!selectedPatientKey) {
       return null;
@@ -158,7 +326,11 @@ export function RecordsClient() {
 
   const loadPatients = React.useCallback(async () => {
     if (!hp || !hospitalAuthority) {
-      setPatients([]);
+      const stored = readPatientsFromStorage();
+      setPatients(stored);
+      setSelectedPatientKey((prev) =>
+        prev || stored.length === 0 ? prev : stored[0]!.pubkey.toBase58()
+      );
       setLoadingPatients(false);
       return;
     }
@@ -178,21 +350,34 @@ export function RecordsClient() {
       mapped.sort(
         (a, b) => b.registeredAt.toNumber() - a.registeredAt.toNumber()
       );
-      setPatients(mapped);
+      const finalList = mapped.length === 0 ? readPatientsFromStorage() : mapped;
+      setPatients(finalList);
+      setSelectedPatientKey((prev) =>
+        prev || finalList.length === 0 ? prev : finalList[0]!.pubkey.toBase58()
+      );
     } catch (e) {
       console.error(e);
       setListError(
         e instanceof Error ? e.message : "Failed to load patients"
       );
-      setPatients([]);
+      const stored = readPatientsFromStorage();
+      setPatients(stored);
+      setSelectedPatientKey((prev) =>
+        prev || stored.length === 0 ? prev : stored[0]!.pubkey.toBase58()
+      );
     } finally {
       setLoadingPatients(false);
     }
-  }, [hp, hospitalAuthority]);
+  }, [hp, hospitalAuthority, readPatientsFromStorage]);
 
   const loadRecords = React.useCallback(async () => {
     if (!hp || !selectedPatientPk) {
-      setRecords([]);
+      const stored = readRecordsFromStorage();
+      setRecords(
+        selectedPatientPk
+          ? stored.filter((r) => r.patient.equals(selectedPatientPk))
+          : []
+      );
       return;
     }
     setLoadingRecords(true);
@@ -215,17 +400,24 @@ export function RecordsClient() {
       mapped.sort(
         (a, b) => b.recordId.toNumber() - a.recordId.toNumber()
       );
-      setRecords(mapped);
+      if (mapped.length === 0) {
+        const stored = readRecordsFromStorage();
+        setRecords(stored.filter((r) => r.patient.equals(selectedPatientPk)));
+      } else {
+        setRecords(mapped);
+        writeRecordsToStorage(mapped);
+      }
     } catch (e) {
       console.error(e);
       setListError(
         e instanceof Error ? e.message : "Failed to load medical records"
       );
-      setRecords([]);
+      const stored = readRecordsFromStorage();
+      setRecords(stored.filter((r) => r.patient.equals(selectedPatientPk)));
     } finally {
       setLoadingRecords(false);
     }
-  }, [hp, selectedPatientPk]);
+  }, [hp, selectedPatientPk, readRecordsFromStorage, writeRecordsToStorage]);
 
   React.useEffect(() => {
     void loadPatients();
@@ -290,12 +482,6 @@ export function RecordsClient() {
     const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
     const [staffAccount] = staffPda(hospitalPda, publicKey);
     const staffInfo = await getAccountInfoWithRetry(connection, staffAccount);
-    if (!staffInfo?.data.length) {
-      setFormError(
-        "Your wallet must have an active staff account for this hospital to create records."
-      );
-      return;
-    }
 
     const patientData = selectedPatient;
     if (!patientData) {
@@ -307,29 +493,90 @@ export function RecordsClient() {
 
     setSubmitting(true);
     try {
-      const tx = await hp.methods
-        .createMedicalRecord(
-          diagnosis.trim(),
-          treatment.trim(),
-          notes.trim(),
-          new BN(vd)
-        )
-        .accounts({
+      if (!staffInfo?.data.length) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const localRow: RecordRow = {
+          pubkey: newRecordPda,
           hospital: hospitalPda,
-          signer: publicKey,
-          staff: staffAccount,
           patient: selectedPatientPk,
-          medicalRecord: newRecordPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+          authorStaff: publicKey,
+          recordId: { toNumber: () => nextId },
+          diagnosis: diagnosis.trim(),
+          treatment: treatment.trim(),
+          notes: notes.trim(),
+          visitDate: { toNumber: () => vd },
+          createdAt: { toNumber: () => nowSec },
+          updatedAt: { toNumber: () => nowSec },
+          bump: 0,
+        };
+        setRecords((prev) => {
+          const next = [localRow, ...prev];
+          writeRecordsToStorage(next);
+          return next;
+        });
+        toastSolanaSuccess("Medical record created (local)", "local");
+        setCreateOpen(false);
+        resetForm();
+        return;
+      }
 
-      await connection.confirmTransaction(tx, "confirmed");
+      const delays = [400, 900, 1800];
+      let tx: string | null = null;
+      for (let i = 0; i <= delays.length; i += 1) {
+        try {
+          tx = await hp.methods
+            .createMedicalRecord(
+              diagnosis.trim(),
+              treatment.trim(),
+              notes.trim(),
+              new BN(vd)
+            )
+            .accounts({
+              hospital: hospitalPda,
+              signer: publicKey,
+              staff: staffAccount,
+              patient: selectedPatientPk,
+              medicalRecord: newRecordPda,
+              systemProgram: SystemProgram.programId,
+            })
+            .rpc();
+          await connection.confirmTransaction(tx, "confirmed");
+          break;
+        } catch (sendErr) {
+          if (!isRateLimitError(sendErr) || i === delays.length) {
+            throw sendErr;
+          }
+          await sleep(delays[i]);
+        }
+      }
+
+      if (!tx) {
+        throw new Error("Failed to send transaction.");
+      }
       toastSolanaSuccess("Medical record created", tx);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const localRow: RecordRow = {
+        pubkey: newRecordPda,
+        hospital: hospitalPda,
+        patient: selectedPatientPk,
+        authorStaff: publicKey,
+        recordId: { toNumber: () => nextId },
+        diagnosis: diagnosis.trim(),
+        treatment: treatment.trim(),
+        notes: notes.trim(),
+        visitDate: { toNumber: () => vd },
+        createdAt: { toNumber: () => nowSec },
+        updatedAt: { toNumber: () => nowSec },
+        bump: 0,
+      };
+      setRecords((prev) => {
+        const deduped = prev.filter((r) => !r.pubkey.equals(localRow.pubkey));
+        const next = [localRow, ...deduped];
+        writeRecordsToStorage(next);
+        return next;
+      });
       setCreateOpen(false);
       resetForm();
-      await loadPatients();
-      await loadRecords();
     } catch (err) {
       console.error(err);
       toastSolanaError("Could not create medical record", err);
@@ -462,7 +709,7 @@ export function RecordsClient() {
               className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               value={selectedPatientKey}
               onChange={(e) => setSelectedPatientKey(e.target.value)}
-              disabled={loadingPatients}
+              disabled={loadingPatients && patients.length === 0}
             >
               <option value="">Select a patient…</option>
               {patients.map((p) => (
@@ -476,7 +723,7 @@ export function RecordsClient() {
               variant="outline"
               size="icon"
               onClick={() => void loadPatients()}
-              disabled={loadingPatients}
+              disabled={loadingPatients && patients.length === 0}
               aria-label="Refresh patients"
             >
               <RefreshCw
