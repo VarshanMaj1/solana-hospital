@@ -286,6 +286,30 @@ export function RecordsClient() {
     }
   }, [recordsStorageKey]);
 
+  const writePatientsToStorage = React.useCallback(
+    (nextRows: PatientRow[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      try {
+        const serialized: StoredPatientRow[] = nextRows.map((p) => ({
+          pubkey: p.pubkey.toBase58(),
+          fullName: p.fullName,
+          wallet: p.wallet.toBase58(),
+          dob: p.dob.toNumber(),
+          bloodType: p.bloodType,
+          allergies: p.allergies,
+          registeredAt: p.registeredAt.toNumber(),
+        }));
+        window.localStorage.setItem(patientsStorageKey, JSON.stringify(serialized));
+        window.localStorage.setItem("patients:default", JSON.stringify(serialized));
+      } catch (err) {
+        console.error("Failed to write patients to localStorage:", err);
+      }
+    },
+    [patientsStorageKey]
+  );
+
   const writeRecordsToStorage = React.useCallback(
     (nextRows: RecordRow[]) => {
       if (typeof window === "undefined") {
@@ -398,11 +422,18 @@ export function RecordsClient() {
     
     // Always load from storage first
     const stored = readRecordsFromStorage();
-    setRecords(stored);
+    
+    // Filter records to show only records for the selected patient
+    if (selectedPatientPk) {
+      const patientRecords = stored.filter((r) => r.patient.equals(selectedPatientPk));
+      setRecords(patientRecords);
+    } else {
+      setRecords(stored);
+    }
     
     setLoadingRecords(false);
     return;
-  }, [readRecordsFromStorage]);
+  }, [readRecordsFromStorage, selectedPatientPk]);
 
   React.useEffect(() => {
     void loadPatients();
@@ -502,6 +533,25 @@ export function RecordsClient() {
       return next;
     });
     toastSolanaSuccess("Medical record deleted", "deleted");
+  };
+
+  const handleDeletePatient = (patientPubkey: PublicKey) => {
+    setPatients((prev) => {
+      const next = prev.filter((p) => !p.pubkey.equals(patientPubkey));
+      writePatientsToStorage(next);
+      return next;
+    });
+    // Also delete all records for this patient
+    setRecords((prev) => {
+      const next = prev.filter((r) => !r.patient.equals(patientPubkey));
+      writeRecordsToStorage(next);
+      return next;
+    });
+    // Clear selected patient if it was the deleted one
+    if (selectedPatientPk?.equals(patientPubkey)) {
+      setSelectedPatientKey("");
+    }
+    toastSolanaSuccess("Patient deleted", "deleted");
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -662,6 +712,17 @@ export function RecordsClient() {
               <RefreshCw
                 className={`size-4 ${loadingPatients ? "animate-spin" : ""}`}
               />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => selectedPatientPk && handleDeletePatient(selectedPatientPk)}
+              disabled={!selectedPatientPk}
+              aria-label="Delete patient"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" />
             </Button>
           </div>
         </div>

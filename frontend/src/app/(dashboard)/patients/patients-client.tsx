@@ -1,7 +1,7 @@
 "use client";
 
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Loader2, Plus, Search } from "lucide-react";
+import { Loader2, Plus, Search, Trash2 } from "lucide-react";
 import * as React from "react";
 import { PublicKey, SendTransactionError, SystemProgram } from "@solana/web3.js";
 import { Button } from "@/components/ui/button";
@@ -403,6 +403,15 @@ export function PatientsClient() {
     }
   };
 
+  const handleDeletePatient = (patientPubkey: PublicKey) => {
+    setRows((prev) => {
+      const next = prev.filter((r) => !r.pubkey.equals(patientPubkey));
+      writePatientsToStorage(next);
+      return next;
+    });
+    toastSolanaSuccess("Patient deleted", "deleted");
+  };
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       {!hospitalAuthorityFromEnv ? (
@@ -503,19 +512,20 @@ export function PatientsClient() {
                 <th className="px-4 py-3 font-medium text-muted-foreground">
                   Registered
                 </th>
+                <th className="px-4 py-3 font-medium text-muted-foreground" />
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={8} className="px-4 py-12 text-center">
                     <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No patients match your filters.
@@ -547,6 +557,18 @@ export function PatientsClient() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                       {new Date(r.registeredAt.toNumber() * 1000).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeletePatient(r.pubkey)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))
