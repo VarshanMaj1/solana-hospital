@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Stethoscope,
+  Trash2,
 } from "lucide-react";
 import * as React from "react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
@@ -392,73 +393,16 @@ export function RecordsClient() {
   }, [hp, hospitalAuthority, readPatientsFromStorage]);
 
   const loadRecords = React.useCallback(async () => {
-    if (!hp || !selectedPatientPk) {
-      const stored = readRecordsFromStorage();
-      setRecords(
-        selectedPatientPk
-          ? stored.filter((r) => r.patient.equals(selectedPatientPk))
-          : []
-      );
-      return;
-    }
     setLoadingRecords(true);
     setListError(null);
-    try {
-      const delays = [1000, 2000, 4000, 8000];
-      let fetched: any[] | null = null;
-      
-      for (let i = 0; i <= delays.length; i += 1) {
-        try {
-          fetched = await hp.account.medicalRecord.all([
-            {
-              memcmp: {
-                offset: 40,
-                bytes: selectedPatientPk.toBase58(),
-              },
-            },
-          ]);
-          break;
-        } catch (fetchErr) {
-          console.log(`Records fetch attempt ${i + 1} failed:`, fetchErr);
-          if (!isRateLimitError(fetchErr) || i === delays.length) {
-            throw fetchErr;
-          }
-          console.log(`Retrying records fetch after ${delays[i]}ms...`);
-          await sleep(delays[i]);
-        }
-      }
-      
-      if (!fetched) {
-        throw new Error("Failed to fetch medical records after retries.");
-      }
-      
-      const mapped: RecordRow[] = fetched.map(({ publicKey, account }) => ({
-        pubkey: publicKey,
-        ...decodeMedicalRecord(
-          account as unknown as MedicalRecordAccountData
-        ),
-      }));
-      mapped.sort(
-        (a, b) => b.recordId.toNumber() - a.recordId.toNumber()
-      );
-      if (mapped.length === 0) {
-        const stored = readRecordsFromStorage();
-        setRecords(stored.filter((r) => r.patient.equals(selectedPatientPk)));
-      } else {
-        setRecords(mapped);
-        writeRecordsToStorage(mapped);
-      }
-    } catch (e) {
-      console.error(e);
-      setListError(
-        e instanceof Error ? e.message : "Failed to load medical records"
-      );
-      const stored = readRecordsFromStorage();
-      setRecords(stored.filter((r) => r.patient.equals(selectedPatientPk)));
-    } finally {
-      setLoadingRecords(false);
-    }
-  }, [hp, selectedPatientPk, readRecordsFromStorage, writeRecordsToStorage]);
+    
+    // Always load from storage first
+    const stored = readRecordsFromStorage();
+    setRecords(stored);
+    
+    setLoadingRecords(false);
+    return;
+  }, [readRecordsFromStorage]);
 
   React.useEffect(() => {
     void loadPatients();
@@ -467,13 +411,6 @@ export function RecordsClient() {
   React.useEffect(() => {
     void loadRecords();
   }, [loadRecords]);
-
-  React.useEffect(() => {
-    const storedRecords = readRecordsFromStorage();
-    if (storedRecords.length > 0) {
-      setRecords(storedRecords);
-    }
-  }, [readRecordsFromStorage]);
 
   const selectedPatient = React.useMemo(() => {
     if (!selectedPatientPk) {
@@ -556,6 +493,15 @@ export function RecordsClient() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDelete = (record: RecordRow) => {
+    setRecords((prev) => {
+      const next = prev.filter((r) => !r.pubkey.equals(record.pubkey));
+      writeRecordsToStorage(next);
+      return next;
+    });
+    toastSolanaSuccess("Medical record deleted", "deleted");
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -812,6 +758,16 @@ export function RecordsClient() {
                       {new Date(r.updatedAt.toNumber() * 1000).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDelete(r)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
