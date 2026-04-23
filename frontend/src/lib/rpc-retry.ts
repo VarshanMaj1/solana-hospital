@@ -7,7 +7,7 @@ function isRateLimitError(err: unknown): boolean {
     return false;
   }
   const msg = err.message.toLowerCase();
-  return msg.includes("429") || msg.includes("rate limit");
+  return msg.includes("429") || msg.includes("rate limit") || msg.includes("too many request") || msg.includes("too many requests for a specific rpc call");
 }
 
 function sleep(ms: number) {

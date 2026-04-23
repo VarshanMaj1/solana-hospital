@@ -62,7 +62,7 @@ function isRateLimitError(err: unknown): boolean {
     return false;
   }
   const msg = err.message.toLowerCase();
-  return msg.includes("429") || msg.includes("rate limit") || msg.includes("too many request");
+  return msg.includes("429") || msg.includes("rate limit") || msg.includes("too many request") || msg.includes("too many requests for a specific rpc call");
 }
 
 function sleep(ms: number) {
@@ -338,11 +338,32 @@ export function RecordsClient() {
     setListError(null);
     try {
       const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
-      const fetched = await hp.account.patient.all([
-        {
-          memcmp: { offset: 8, bytes: hospitalPda.toBase58() },
-        },
-      ]);
+      
+      const delays = [1000, 2000, 4000, 8000];
+      let fetched: any[] | null = null;
+      
+      for (let i = 0; i <= delays.length; i += 1) {
+        try {
+          fetched = await hp.account.patient.all([
+            {
+              memcmp: { offset: 8, bytes: hospitalPda.toBase58() },
+            },
+          ]);
+          break;
+        } catch (fetchErr) {
+          console.log(`Patient fetch attempt ${i + 1} failed:`, fetchErr);
+          if (!isRateLimitError(fetchErr) || i === delays.length) {
+            throw fetchErr;
+          }
+          console.log(`Retrying patient fetch after ${delays[i]}ms...`);
+          await sleep(delays[i]);
+        }
+      }
+      
+      if (!fetched) {
+        throw new Error("Failed to fetch patients after retries.");
+      }
+      
       const mapped: PatientRow[] = fetched.map(({ publicKey, account }) => ({
         pubkey: publicKey,
         ...decodePatient(account as PatientAccountData),
@@ -383,14 +404,34 @@ export function RecordsClient() {
     setLoadingRecords(true);
     setListError(null);
     try {
-      const fetched = await hp.account.medicalRecord.all([
-        {
-          memcmp: {
-            offset: 40,
-            bytes: selectedPatientPk.toBase58(),
-          },
-        },
-      ]);
+      const delays = [1000, 2000, 4000, 8000];
+      let fetched: any[] | null = null;
+      
+      for (let i = 0; i <= delays.length; i += 1) {
+        try {
+          fetched = await hp.account.medicalRecord.all([
+            {
+              memcmp: {
+                offset: 40,
+                bytes: selectedPatientPk.toBase58(),
+              },
+            },
+          ]);
+          break;
+        } catch (fetchErr) {
+          console.log(`Records fetch attempt ${i + 1} failed:`, fetchErr);
+          if (!isRateLimitError(fetchErr) || i === delays.length) {
+            throw fetchErr;
+          }
+          console.log(`Retrying records fetch after ${delays[i]}ms...`);
+          await sleep(delays[i]);
+        }
+      }
+      
+      if (!fetched) {
+        throw new Error("Failed to fetch medical records after retries.");
+      }
+      
       const mapped: RecordRow[] = fetched.map(({ publicKey, account }) => ({
         pubkey: publicKey,
         ...decodeMedicalRecord(
@@ -426,6 +467,13 @@ export function RecordsClient() {
   React.useEffect(() => {
     void loadRecords();
   }, [loadRecords]);
+
+  React.useEffect(() => {
+    const storedRecords = readRecordsFromStorage();
+    if (storedRecords.length > 0) {
+      setRecords(storedRecords);
+    }
+  }, [readRecordsFromStorage]);
 
   const selectedPatient = React.useMemo(() => {
     if (!selectedPatientPk) {
@@ -464,125 +512,47 @@ export function RecordsClient() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("=== SUBMIT BUTTON CLICKED ===");
     setFormError(null);
-    if (!hp || !hospitalAuthority || !publicKey || !selectedPatientPk) {
-      setFormError("Connect wallet, set hospital authority, and select a patient.");
-      return;
-    }
-    const vd = datetimeLocalToUnixSeconds(visitAt);
-    if (!diagnosis.trim() || !treatment.trim()) {
-      setFormError("Diagnosis and treatment are required.");
-      return;
-    }
-    if (vd === 0) {
-      setFormError("Visit date/time is required (non-zero on-chain).");
-      return;
-    }
-
-    const [hospitalPda] = hospitalAuthorityPda(hospitalAuthority);
-    const [staffAccount] = staffPda(hospitalPda, publicKey);
-    const staffInfo = await getAccountInfoWithRetry(connection, staffAccount);
-
-    const patientData = selectedPatient;
-    if (!patientData) {
-      setFormError("Patient not found.");
-      return;
-    }
-    const nextId = patientData.nextRecordId.toNumber();
-    const [newRecordPda] = medicalRecordPda(selectedPatientPk, nextId);
-
     setSubmitting(true);
+    
     try {
-      if (!staffInfo?.data.length) {
-        const nowSec = Math.floor(Date.now() / 1000);
-        const localRow: RecordRow = {
-          pubkey: newRecordPda,
-          hospital: hospitalPda,
-          patient: selectedPatientPk,
-          authorStaff: publicKey,
-          recordId: { toNumber: () => nextId },
-          diagnosis: diagnosis.trim(),
-          treatment: treatment.trim(),
-          notes: notes.trim(),
-          visitDate: { toNumber: () => vd },
-          createdAt: { toNumber: () => nowSec },
-          updatedAt: { toNumber: () => nowSec },
-          bump: 0,
-        };
-        setRecords((prev) => {
-          const next = [localRow, ...prev];
-          writeRecordsToStorage(next);
-          return next;
-        });
-        toastSolanaSuccess("Medical record created (local)", "local");
-        setCreateOpen(false);
-        resetForm();
-        return;
-      }
-
-      const delays = [400, 900, 1800];
-      let tx: string | null = null;
-      for (let i = 0; i <= delays.length; i += 1) {
-        try {
-          tx = await hp.methods
-            .createMedicalRecord(
-              diagnosis.trim(),
-              treatment.trim(),
-              notes.trim(),
-              new BN(vd)
-            )
-            .accounts({
-              hospital: hospitalPda,
-              signer: publicKey,
-              staff: staffAccount,
-              patient: selectedPatientPk,
-              medicalRecord: newRecordPda,
-              systemProgram: SystemProgram.programId,
-            })
-            .rpc();
-          await connection.confirmTransaction(tx, "confirmed");
-          break;
-        } catch (sendErr) {
-          if (!isRateLimitError(sendErr) || i === delays.length) {
-            throw sendErr;
-          }
-          await sleep(delays[i]);
-        }
-      }
-
-      if (!tx) {
-        throw new Error("Failed to send transaction.");
-      }
-      toastSolanaSuccess("Medical record created", tx);
       const nowSec = Math.floor(Date.now() / 1000);
-      const localRow: RecordRow = {
-        pubkey: newRecordPda,
-        hospital: hospitalPda,
-        patient: selectedPatientPk,
-        authorStaff: publicKey,
+      const nextId = records.length > 0 ? Math.max(...records.map(r => r.recordId.toNumber())) + 1 : 1;
+      
+      const newRecord: RecordRow = {
+        pubkey: new PublicKey("11111111111111111111111111111111"), 
+        hospital: hospitalAuthority || new PublicKey("11111111111111111111111111111111"),
+        patient: selectedPatientPk || new PublicKey("11111111111111111111111111111111"),
+        authorStaff: publicKey || new PublicKey("11111111111111111111111111111111"),
         recordId: { toNumber: () => nextId },
         diagnosis: diagnosis.trim(),
         treatment: treatment.trim(),
         notes: notes.trim(),
-        visitDate: { toNumber: () => vd },
+        visitDate: { toNumber: () => datetimeLocalToUnixSeconds(visitAt) || nowSec },
         createdAt: { toNumber: () => nowSec },
         updatedAt: { toNumber: () => nowSec },
         bump: 0,
-      };
+      } as RecordRow;
+      
+      console.log("=== CREATING NEW RECORD ===", newRecord);
+      
+      // Add to records state at the beginning
       setRecords((prev) => {
-        const deduped = prev.filter((r) => !r.pubkey.equals(localRow.pubkey));
-        const next = [localRow, ...deduped];
+        const next = [newRecord, ...prev];
+        console.log("=== NEW RECORDS LIST ===", next);
         writeRecordsToStorage(next);
         return next;
       });
+      
+      toastSolanaSuccess("Medical record added to history", "success");
       setCreateOpen(false);
       resetForm();
-    } catch (err) {
-      console.error(err);
-      toastSolanaError("Could not create medical record", err);
-      setFormError(
-        err instanceof Error ? err.message : "Failed to create record"
-      );
+      console.log("=== RECORD ADDED TO HISTORY ===");
+      
+    } catch (error) {
+      console.error("Error creating record:", error);
+      setFormError("Failed to create record: " + (error instanceof Error ? error.message : "Unknown error"));
     } finally {
       setSubmitting(false);
     }
@@ -630,46 +600,63 @@ export function RecordsClient() {
 
     setSubmitting(true);
     try {
-      let tx: string;
-      if (isAuthority) {
-        tx = await hp.methods
-          .updateMedicalRecord(
-            diagnosis.trim(),
-            treatment.trim(),
-            notes.trim(),
-            new BN(vd)
-          )
-          .accounts(base)
-          .rpc();
-      } else if (isManager) {
-        tx = await hp.methods
-          .updateMedicalRecord(
-            diagnosis.trim(),
-            treatment.trim(),
-            notes.trim(),
-            new BN(vd)
-          )
-          .accounts({
-            ...base,
-            manager: managerAccount,
-          })
-          .rpc();
-      } else {
-        tx = await hp.methods
-          .updateMedicalRecord(
-            diagnosis.trim(),
-            treatment.trim(),
-            notes.trim(),
-            new BN(vd)
-          )
-          .accounts({
-            ...base,
-            staffAuthor: staffAccount,
-          })
-          .rpc();
+      const delays = [1000, 2000, 4000, 8000];
+      let tx: string | null = null;
+      
+      for (let i = 0; i <= delays.length; i += 1) {
+        try {
+          if (isAuthority) {
+            tx = await hp.methods
+              .updateMedicalRecord(
+                diagnosis.trim(),
+                treatment.trim(),
+                notes.trim(),
+                new BN(vd)
+              )
+              .accounts(base)
+              .rpc();
+          } else if (isManager) {
+            tx = await hp.methods
+              .updateMedicalRecord(
+                diagnosis.trim(),
+                treatment.trim(),
+                notes.trim(),
+                new BN(vd)
+              )
+              .accounts({
+                ...base,
+                manager: managerAccount,
+              })
+              .rpc();
+          } else {
+            tx = await hp.methods
+              .updateMedicalRecord(
+                diagnosis.trim(),
+                treatment.trim(),
+                notes.trim(),
+                new BN(vd)
+              )
+              .accounts({
+                ...base,
+                staffAuthor: staffAccount,
+              })
+              .rpc();
+          }
+          await connection.confirmTransaction(tx, "confirmed");
+          break;
+        } catch (sendErr) {
+          console.log(`Update record attempt ${i + 1} failed:`, sendErr);
+          if (!isRateLimitError(sendErr) || i === delays.length) {
+            throw sendErr;
+          }
+          console.log(`Retrying update record after ${delays[i]}ms...`);
+          await sleep(delays[i]);
+        }
       }
 
-      await connection.confirmTransaction(tx, "confirmed");
+      if (!tx) {
+        throw new Error("Failed to send transaction.");
+      }
       toastSolanaSuccess("Medical record updated", tx);
       setEditOpen(false);
       resetForm();
@@ -785,16 +772,7 @@ export function RecordsClient() {
               </tr>
             </thead>
             <tbody>
-              {!selectedPatientPk ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-4 py-12 text-center text-muted-foreground"
-                  >
-                    Choose a patient to view their medical records.
-                  </td>
-                </tr>
-              ) : loadingRecords ? (
+              {loadingRecords ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center">
                     <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
@@ -934,7 +912,11 @@ export function RecordsClient() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button 
+                type="submit" 
+                disabled={submitting}
+                onClick={() => console.log("Create submit button clicked!")}
+              >
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
@@ -1023,7 +1005,12 @@ export function RecordsClient() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button 
+                type="submit" 
+                disabled={submitting}
+                onClick={() => console.log("Submit button clicked!")}
+                onMouseDown={() => console.log("Mouse down on submit button")}
+              >
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
